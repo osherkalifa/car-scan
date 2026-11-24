@@ -77,6 +77,8 @@ figure img{max-width:100%;border-radius:8px}
 .src a{color:var(--accent)}
 .topic ul{margin:6px 0;padding-inline-start:20px;font-size:14px}
 .rstat{font-weight:700;margin:6px 0}
+.btn.pdf{width:100%;margin:8px 0 2px}
+.fit.ltr{direction:ltr;text-align:left;font-size:12px}
 .bar{height:10px;background:var(--line);border-radius:999px;overflow:hidden;margin:8px 0}
 .bar .fill{height:100%;background:var(--accent);border-radius:999px;transition:width .6s}
 .steps{margin:6px 0;padding-inline-start:22px;font-size:13px;color:var(--muted)}
@@ -382,10 +384,20 @@ function researchCard(r){
   TOPICS.forEach(function(tp){
     var d=el("details","topic");var sm=el("summary");
     sm.appendChild(el("span","tt",tp[1]));var badge=el("span","badge muted","לא נחקר");sm.appendChild(badge);d.appendChild(sm);
-    var body=el("div");d.appendChild(body);c.appendChild(d);
-    rows[tp[0]]={d:d,badge:badge,body:body,state:"none",desc:tp[2]};
+    var top=el("div"),body=el("div");d.appendChild(top);d.appendChild(body);c.appendChild(d);
+    rows[tp[0]]={d:d,badge:badge,top:top,body:body,state:"none",desc:tp[2]};
     d.addEventListener("toggle",function(){if(d.open&&rows[tp[0]].state==="none")offer(tp[0])});
   });
+  function showManuals(list){
+    var top=rows.manual.top;top.textContent="";
+    (list||[]).forEach(function(m,i){
+      if(!/^https:\/\//.test(m.url||""))return;
+      var a=el("a","btn pdf","📖 פתח את ספר הרכב (PDF"+(m.pages?", "+m.pages+" עמודים":"")+")");
+      a.href=m.url;a.target="_blank";a.rel="noopener";top.appendChild(a);
+      if(has(m.title))top.appendChild(el("p","fit ltr",m.title));
+    });
+    if(top.firstChild&&rows.manual.state==="none"){setBadge("manual","יש ספר","ok")}
+  }
   function setBadge(id,text,cls){var b=rows[id].badge;b.textContent=text;b.className="badge "+cls}
   function showTopic(t){
     var row=rows[t.id];if(!row)return;
@@ -423,7 +435,7 @@ function researchCard(r){
       loadResearch(key,true).then(function(d){
         if(!alive())return;
         var t=(d.topics||[]).filter(function(x){return x.id===id})[0];
-        if(t)showTopic(t);else throw 0;
+        if(t){showTopic(t);showManuals(d.manuals)}else throw 0;
       }).catch(function(){
         if(!alive())return;
         if(++n<14)setTimeout(load,5000);else fail(id,"המחקר הסתיים אבל התוצאה עוד לא זמינה.","סרוק שוב את הרכב בעוד דקה.",false);
@@ -469,7 +481,7 @@ function researchCard(r){
     });
   }
   // On open: show what is already researched, and re-attach to anything still running (e.g. after a refresh).
-  loadResearch(key,false).then(function(d){if(alive())(d.topics||[]).forEach(showTopic)}).catch(function(){}).then(function(){
+  loadResearch(key,false).then(function(d){if(alive()){(d.topics||[]).forEach(showTopic);showManuals(d.manuals)}}).catch(function(){}).then(function(){
     var code=pairCode();if(!alive()||!code)return;
     readStatuses(code).then(function(by){
       if(!alive())return;

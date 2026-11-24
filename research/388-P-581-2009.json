@@ -1041,5 +1041,17 @@
     }
    ]
   }
+ ],
+ "manuals": [
+  {
+   "title": "Volvo C30 Owner's Manual, Web Edition, European edition (TP 8788, EE English, printed Göteborg 2006, approx. MY2007), ~247 pages, archived o",
+   "url": "https://archive.org/download/manualzilla-id-7259779/7259779.pdf",
+   "pages": 247
+  },
+  {
+   "title": "Volvo 2009 C30 Owner's Manual, Web Edition (US/Canada edition, English, (c) 2008 Volvo Car Corporation), full manual, archived on archive.or",
+   "url": "https://archive.org/download/manualzz-id-1121036/1121036.pdf",
+   "pages": 274
+  }
  ]
 }

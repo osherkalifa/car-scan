@@ -210,5 +210,17 @@
   }
  ],
  "vehicle": "בי ווי די BYD ATTO 2 DM-I · SC3E-SC3H0B · 2026 · מנוע BYD472QA",
- "updated": "2026-11-24"
+ "updated": "2026-11-24",
+ "manuals": [
+  {
+   "title": "BYD ATTO 2 DM-i Owner's Manual, Left-hand Drive, 2026-01-19, English",
+   "url": "https://www.byd.com/material/ATTO%202%20DM-i%20Owner%27s%20Manual-Left-hand-Drive-20260119-EN.pdf",
+   "pages": 254
+  },
+  {
+   "title": "BYD ATTO 2 DM-i Owner's Manual, Left-hand Drive, 2025-12-03, English",
+   "url": "https://www.byd.com/material/ATTO2%20DM-i%20Owner%27s%20Manual-Left-hand%20Drive-20251203-EN.pdf",
+   "pages": 252
+  }
+ ]
 }
