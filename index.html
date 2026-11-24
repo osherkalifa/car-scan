@@ -343,15 +343,26 @@ function loadResearch(key,fresh){
   var raw=RAW+encodeURIComponent(key)+".json"+(fresh?"?t="+Date.now():"");
   return fresh?get(raw).catch(function(){return get(local)}):get(local).catch(function(){return get(raw)});
 }
-// All status messages of the last 30 minutes, grouped by request id ("<key>:<topic>"), oldest first.
+// Status messages from the home agent: one snapshot of the last 30 minutes, then a single live stream.
+// (The relay limits how many requests a device may send, so the page must not poll it repeatedly.)
+var bus={by:{},ids:{},ready:null,es:null};
+function busAdd(ev){
+  try{
+    if(!ev||ev.event!=="message"||bus.ids[ev.id])return;bus.ids[ev.id]=1;
+    var m=JSON.parse(ev.message);if(m&&m.k)(bus.by[m.k]=bus.by[m.k]||[]).push(m);
+  }catch(e){}
+}
 function readStatuses(code){
-  return fetch(RELAY+code+"s/json?poll=1&since=30m",{cache:"no-store"}).then(function(x){return x.text()}).then(function(txt){
-    var by={};
-    txt.split("\n").forEach(function(line){
-      try{var ev=JSON.parse(line);if(ev.event!=="message")return;var m=JSON.parse(ev.message);if(m&&m.k){(by[m.k]=by[m.k]||[]).push(m)}}catch(e){}
-    });
-    return by;
+  if(bus.ready)return bus.ready.then(function(){return bus.by});
+  bus.ready=fetch(RELAY+code+"s/json?poll=1&since=30m",{cache:"no-store"}).then(function(x){return x.text()}).then(function(txt){
+    txt.split("\n").forEach(function(line){try{busAdd(JSON.parse(line))}catch(e){}});
+  }).catch(function(){}).then(function(){
+    try{
+      bus.es=new EventSource(RELAY+code+"s/sse?since="+(Math.floor(Date.now()/1000)-20));
+      bus.es.onmessage=function(e){try{busAdd(JSON.parse(e.data))}catch(err){}};
+    }catch(e){}
   });
+  return bus.ready.then(function(){return bus.by});
 }
 function researchCard(r){
   var run=++researchRun;
@@ -431,7 +442,7 @@ function researchCard(r){
         if(list.length)apply(id,list);
         else if(Date.now()/1000-(sentAt[id]||0)>35)progress(id,[],["המחשב לא עונה כרגע. כנראה שהוא כבוי או לא מחובר לאינטרנט. הבקשה נשמרה ותטופל כשהוא יידלק (עד 12 שעות).","warn"]);
       });
-    }).catch(function(){}).then(function(){if(alive()&&Object.keys(watching).length&&!timer)timer=setTimeout(poll,5000)});
+    }).catch(function(){}).then(function(){if(alive()&&Object.keys(watching).length&&!timer)timer=setTimeout(poll,1500)});
   }
   function watch(id,since){watching[id]=since;if(!timer)timer=setTimeout(poll,1500)}
   function start(id){
@@ -494,17 +505,17 @@ function awaitQuick(rid,since,onWork,maxSec){
   var code=pairCode(),t0=Date.now();
   return new Promise(function(res,rej){
     (function tick(){
-      fetch(RELAY+code+"s/json?poll=1&since="+since,{cache:"no-store"}).then(function(x){return x.text()}).then(function(txt){
-        var list=[];
-        txt.split("\n").forEach(function(line){try{var ev=JSON.parse(line);if(ev.event!=="message")return;var m=JSON.parse(ev.message);if(m&&m.k===rid)list.push(m)}catch(e){}});
+      readStatuses(code).then(function(by){
+        var list=by[rid]||[];
+        var failed=list.filter(function(m){return m.s==="failed"});
+        if(failed.length){rej(new Error(failed[0].m||"failed"));return}
         var done=list.filter(function(m){return m.s==="done"});
-        if(list.some(function(m){return m.s==="failed"})){rej(new Error((list.filter(function(m){return m.s==="failed"})[0].m)||"failed"));return}
         if(done.length&&(!done[0].n||done.length>=done[0].n)){res(done);return}
         var w=list.filter(function(m){return m.s==="working"});
         if(onWork)onWork(w.length?w[w.length-1].m:null,(Date.now()-t0)/1000);
         if((Date.now()-t0)/1000>maxSec){rej(new Error("timeout"));return}
-        setTimeout(tick,2500);
-      }).catch(function(){if((Date.now()-t0)/1000>maxSec)rej(new Error("timeout"));else setTimeout(tick,4000)});
+        setTimeout(tick,1200);
+      });
     })();
   });
 }
