@@ -59,6 +59,24 @@ button:disabled{opacity:.6}
 .gap{margin-top:12px}
 .flag{display:flex;gap:8px;align-items:flex-start;padding:6px 0;font-weight:600}
 .flag .dot{flex:0 0 auto}
+.topic{border-top:1px solid var(--line);padding:10px 0}
+.topic summary{cursor:pointer;display:flex;gap:10px;align-items:center;justify-content:space-between;font-weight:700;min-height:40px}
+.badge{font-size:12px;font-weight:700;border:1px solid currentColor;border-radius:999px;padding:2px 10px;white-space:nowrap}
+.muted{color:var(--muted)}
+.verdict{font-weight:700;margin:8px 0 4px}
+.fit{color:var(--muted);font-size:14px;margin:4px 0 8px}
+.topic h3{font-size:15px;margin:14px 0 4px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:start;vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td:first-child,td:nth-child(2){white-space:nowrap;direction:ltr;text-align:right;font-weight:700}
+figure{margin:10px 0}
+figure img{max-width:100%;border-radius:8px}
+.src{font-size:13px;color:var(--muted)}
+.src a{color:var(--accent)}
+.topic ul{margin:6px 0;padding-inline-start:20px;font-size:14px}
+
 small{color:var(--muted)}
 </style>
 </head>
@@ -189,27 +207,63 @@ function drawRecent(){
   });
 }
 
-function searchLinks(make,model,year,engine){
-  var base=[make,model,year].filter(has).join(" ");
-  var items=[
-    ["תרשים פיוזים",base+" fuse box diagram","isch"],
-    ["דיאגרמת חשמל",base+" wiring diagram","isch"],
-    ["מומנטי הידוק",base+" "+(engine||"")+" torque specs",""],
-    ["ספר רכב (PDF)",base+" owner's manual pdf",""],
-    ["ספר מוסך",base+" workshop service manual",""],
-    ["צריכת דלק",base+" צריכת דלק ק\"מ לליטר",""],
-    ["אמינות ותקלות נפוצות",base+" common problems reliability",""],
-    ["קוד המנוע",(make+" "+(engine||"")+" engine specs"),""]
-  ];
-  var c=section("חיפוש ברשת לרכב הזה");var g=el("div","links");
-  items.forEach(function(it){
-    if(it[0]==="קוד המנוע"&&!has(engine))return;
-    var a=el("a","btn secondary",it[0]);
-    a.href="https://www.google.com/search?q="+encodeURIComponent(it[1].replace(/\s+/g," ").trim())+(it[2]?"&tbm="+it[2]:"");
-    a.target="_blank";a.rel="noopener";g.appendChild(a);
+function researchKey(r){
+  if(!has(r.tozeret_cd)||!has(r.shnat_yitzur))return null;
+  var m=has(r.degem_cd)?String(r.degem_cd):String(r.degem_nm||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  if(!m)return null;
+  return r.tozeret_cd+"-"+m+"-"+r.shnat_yitzur;
+}
+var CONF={high:["התאמה גבוהה","ok"],medium:["התאמה בינונית","warn"],low:["לא מאומת לרכב הזה","bad"],none:["לא נמצא","muted"]};
+function topicBlock(t){
+  var d=el("details","topic");var sm=el("summary");
+  sm.appendChild(el("span","tt",t.title||""));
+  var c=CONF[t.confidence]||CONF.none;sm.appendChild(el("span","badge "+c[1],c[0]));d.appendChild(sm);
+  if(has(t.verdict))d.appendChild(el("p","verdict",t.verdict));
+  if(has(t.fit))d.appendChild(el("p","fit",t.fit));
+  (t.tables||[]).forEach(function(tb){
+    d.appendChild(el("h3",null,tb.title||""));
+    if(has(tb.note))d.appendChild(el("p","fit",tb.note));
+    var w=el("div","tw"),tab=el("table"),hr=el("tr");
+    (tb.columns||[]).forEach(function(cn){hr.appendChild(el("th",null,cn))});tab.appendChild(hr);
+    (tb.rows||[]).forEach(function(rw){var tr=el("tr");rw.forEach(function(v){tr.appendChild(el("td",null,v))});tab.appendChild(tr)});
+    w.appendChild(tab);d.appendChild(w);
   });
-  c.appendChild(g);
-  c.appendChild(el("small",null,"התוצאות מגיעות מהרשת ולא מהמאגר הרשמי. מומנטים וערכי פיוזים – לוודא מול מקור אמין לפני עבודה."));
+  (t.images||[]).forEach(function(im){
+    if(!/^https:\/\//.test(im.url||""))return;
+    var f=el("figure");var i=el("img");i.src=im.url;i.alt=im.caption||"";i.loading="lazy";f.appendChild(i);
+    if(has(im.caption))f.appendChild(el("figcaption",null,im.caption));d.appendChild(f);
+  });
+  if((t.notes||[]).length){var ul=el("ul");t.notes.forEach(function(n){ul.appendChild(el("li",null,n))});d.appendChild(ul)}
+  var src=(t.sources||[]).filter(function(x){return /^https:\/\//.test(x.url||"")});
+  if(src.length){
+    var sp=el("p","src");sp.appendChild(el("span",null,"מקורות: "));
+    src.forEach(function(x,i){var a=el("a",null,x.title||x.url);a.href=x.url;a.target="_blank";a.rel="noopener";if(i)sp.appendChild(document.createTextNode(" · "));sp.appendChild(a)});
+    d.appendChild(sp);
+  }
+  return d;
+}
+function researchCard(r,title){
+  var c=section("מחקר לרכב הזה");c.classList.add("gap");
+  var key=researchKey(r);
+  var body=el("div",null,"טוען…");c.appendChild(body);
+  function missing(){
+    body.textContent="";
+    body.appendChild(el("p",null,"הדגם הזה עדיין לא נחקר. פיוזים, דיאגרמות חשמל ומומנטים יופיעו כאן אחרי מחקר."));
+    var req="מחקר לרכב: "+title+" · "+(r.degem_nm||"")+" · "+(r.shnat_yitzur||"")+" · מנוע "+(r.degem_manoa||"לא ידוע")+" · מפתח "+(key||"ללא");
+    var b=el("button","secondary","העתק בקשת מחקר");
+    b.addEventListener("click",function(){
+      var done=function(){b.textContent="הועתק"};
+      var show=function(){body.appendChild(el("p","fit",req))};
+      if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(req).then(done,show);else show();
+    });
+    body.appendChild(b);
+  }
+  if(!key){missing();return c}
+  fetch("research/"+encodeURIComponent(key)+".json",{cache:"no-store"}).then(function(x){if(!x.ok)throw 0;return x.json()}).then(function(d){
+    body.textContent="";
+    if(has(d.vehicle))body.appendChild(el("p","fit","נחקר עבור: "+d.vehicle+(has(d.updated)?" · עודכן "+fmtDate(d.updated):"")));
+    (d.topics||[]).forEach(function(t){body.appendChild(topicBlock(t))});
+  }).catch(missing);
   return c;
 }
 
@@ -365,7 +419,7 @@ function render(plate,found,extra,fromPhoto){
   });
   out.appendChild(rc);
 
-  out.appendChild(searchLinks(make,has(r.kinuy_mishari)&&title===model?model.replace(new RegExp("^"+make+"\\s*","i"),""):model,r.shnat_yitzur,r.degem_manoa));
+  out.appendChild(researchCard(r,title));
 
   var foot=el("div","card");
   foot.appendChild(el("small",null,"מקור: מאגרי משרד התחבורה הפתוחים (data.gov.il). עבר ביטוחי ותאונות אינם מפורסמים במאגרים האלה. המאגר מפרסם רק את הקילומטראז' של הטסט האחרון."));
