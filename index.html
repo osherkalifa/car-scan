@@ -77,6 +77,7 @@ figure img{max-width:100%;border-radius:8px}
 .src a{color:var(--accent)}
 .topic ul{margin:6px 0;padding-inline-start:20px;font-size:14px}
 .rstat{font-weight:700;margin:6px 0}
+.allbtn{width:100%;margin:4px 0 10px}
 .btn.pdf{width:100%;margin:8px 0 2px}
 .fit.ltr{direction:ltr;text-align:left;font-size:12px}
 .bar{height:10px;background:var(--line);border-radius:999px;overflow:hidden;margin:8px 0}
@@ -398,6 +399,15 @@ function researchCard(r){
     });
     if(top.firstChild&&rows.manual.state==="none"){setBadge("manual","יש ספר","ok")}
   }
+  var allBtn=el("button","secondary allbtn","חקור את כל הנושאים");
+  allBtn.addEventListener("click",function(){
+    if(!pairCode()){allBtn.textContent="הטלפון לא מחובר לסוכן המחקר";return}
+    var ids=TOPICS.map(function(tp){return tp[0]}).filter(function(id){return rows[id].state==="none"});
+    if(!ids.length){allBtn.textContent="כל הנושאים כבר נחקרו";allBtn.disabled=true;return}
+    allBtn.disabled=true;allBtn.textContent="נשלחו "+ids.length+" נושאים. הם נחקרים אחד אחרי השני";
+    ids.forEach(function(id,i){setTimeout(function(){if(alive()&&rows[id].state==="none")start(id)},i*700)});
+  });
+  c.insertBefore(allBtn,c.querySelector("details"));
   function setBadge(id,text,cls){var b=rows[id].badge;b.textContent=text;b.className="badge "+cls}
   function showTopic(t){
     var row=rows[t.id];if(!row)return;
