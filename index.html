@@ -77,6 +77,18 @@ figure img{max-width:100%;border-radius:8px}
 .src a{color:var(--accent)}
 .topic ul{margin:6px 0;padding-inline-start:20px;font-size:14px}
 .rstat{font-weight:700;margin:6px 0}
+.bar{height:10px;background:var(--line);border-radius:999px;overflow:hidden;margin:8px 0}
+.bar .fill{height:100%;background:var(--accent);border-radius:999px;transition:width .6s}
+.steps{margin:6px 0;padding-inline-start:22px;font-size:13px;color:var(--muted)}
+.steps li:last-child{color:var(--ink);font-weight:600}
+.hist{margin-top:12px}
+.hist summary{cursor:pointer;font-weight:700;padding:6px 0}
+.hrow{display:flex;width:100%;gap:10px;align-items:center;justify-content:flex-start;background:transparent;color:var(--ink);border:0;border-top:1px solid var(--line);border-radius:0;padding:10px 2px;min-height:52px;text-align:start;font-weight:400}
+.hp{background:var(--plate);color:var(--plate-ink);border:1px solid #111;border-radius:6px;padding:2px 8px;font-weight:800;direction:ltr;white-space:nowrap;font-size:14px}
+.hm{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.ht{font-weight:700;direction:ltr;unicode-bidi:plaintext;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hs{font-size:13px;color:var(--muted)}
+.hd{font-size:12px;color:var(--muted);white-space:nowrap}
 .stars{margin:8px 0 2px;font-size:18px;direction:ltr;text-align:right}
 .stars .on{color:#f5b301}.stars .off{color:var(--line)}.stars .num{font-size:14px;color:var(--muted)}
 
@@ -96,7 +108,7 @@ small{color:var(--muted)}
       </label>
     </div>
     <div id="msg" class="msg" role="status"></div>
-    <div id="recent" class="recent"></div>
+    <div id="recent"></div>
   </div>
 
   <div id="out"></div>
@@ -190,10 +202,20 @@ function testStatus(tokef){
   return {t:"בתוקף עד "+fmtDate(tokef),c:"ok"};
 }
 
-function saveRecent(plate,title,km){
+function histLoad(){
+  var list=[];
+  try{list=JSON.parse(localStorage.getItem("cs_hist")||"null");
+    if(!Array.isArray(list)){ // first run after the update: carry over the old short list
+      list=(JSON.parse(localStorage.getItem("cs_recent")||"[]")||[]).map(function(x){return {p:x.p,t:x.t||"",s:"",d:""}});
+    }
+  }catch(e){list=[]}
+  return list.filter(function(x){return x&&/^\d{5,8}$/.test(String(x.p))});
+}
+function saveRecent(plate,title,km,sub){
   try{
-    var list=JSON.parse(localStorage.getItem("cs_recent")||"[]").filter(function(x){return x.p!==plate});
-    list.unshift({p:plate,t:title});localStorage.setItem("cs_recent",JSON.stringify(list.slice(0,8)));
+    var list=histLoad().filter(function(x){return x.p!==plate});
+    list.unshift({p:plate,t:title||"",s:sub||"",d:new Date().toISOString()});
+    localStorage.setItem("cs_hist",JSON.stringify(list.slice(0,200)));
     if(km>0){
       var all=JSON.parse(localStorage.getItem("cs_km")||"{}");var a=all[plate]||[];
       if(!a.length||a[a.length-1].km!==km){a.push({d:new Date().toISOString().slice(0,10),km:km});all[plate]=a.slice(-20);localStorage.setItem("cs_km",JSON.stringify(all))}
@@ -201,18 +223,33 @@ function saveRecent(plate,title,km){
   }catch(e){}
 }
 function kmLog(plate){try{return (JSON.parse(localStorage.getItem("cs_km")||"{}")[plate])||[]}catch(e){return []}}
+function fmtWhen(iso){
+  if(!has(iso))return "";
+  var d=new Date(iso);if(isNaN(d))return "";
+  var p=function(n){return (n<10?"0":"")+n};
+  return d.getDate()+"."+(d.getMonth()+1)+"."+d.getFullYear()+" "+p(d.getHours())+":"+p(d.getMinutes());
+}
 function drawRecent(){
-  var box=$("recent");box.textContent="";var list=[];
-  try{list=JSON.parse(localStorage.getItem("cs_recent")||"[]")}catch(e){}
+  var box=$("recent");box.textContent="";
+  var list=histLoad();if(!list.length)return;
+  var det=el("details","hist");det.open=!$("out").firstChild;
+  det.appendChild(el("summary",null,"היסטוריית חיפושים ("+list.length+")"));
   list.forEach(function(x){
-    var b=el("button","secondary",fmtPlate(x.p));b.title=x.t||"";
-    b.addEventListener("click",function(){$("plate").value=x.p;lookup(x.p,false)});box.appendChild(b);
+    var b=el("button","hrow");
+    b.appendChild(el("span","hp",fmtPlate(x.p)));
+    var mid=el("span","hm");mid.appendChild(el("span","ht",x.t||"רכב"));
+    if(has(x.s))mid.appendChild(el("span","hs",x.s));b.appendChild(mid);
+    b.appendChild(el("span","hd",fmtWhen(x.d)));
+    b.addEventListener("click",function(){$("plate").value=x.p;window.scrollTo(0,0);lookup(x.p,false)});
+    det.appendChild(b);
   });
+  box.appendChild(det);
 }
 
-// ---------- research (done by the agent on the home PC; the app only asks and shows) ----------
+// ---------- research (done by the agent on the home PC, one subject at a time; the app only asks and shows) ----------
 var RELAY="https://ntfy.sh/";
 var RAW="https://raw.githubusercontent.com/osherkalifa/car-scan/main/research/";
+var TOPICS=[["fuses","פיוזים","תיבות הפיוזים, מיקום, וטבלה מלאה"],["torque","מומנטי הידוק","אומי גלגל, פקקים, בלמים, מתלים"],["wiring","דיאגרמות חשמל","סכמות חשמל ומחברים"],["specs","נתוני תחזוקה","שמנים, נוזלים, צמיגים, מרווחי טיפול"],["reliability","אמינות וצריכת דלק","תקלות נפוצות, ריקולים, ציון 1–10"],["manual","ספר הרכב","הספר הרשמי שמתאים לרכב"]];
 var researchRun=0; // bumps on every render so an old car's polling stops
 function pairCode(){try{var c=localStorage.getItem("cs_pair")||"";return /^[a-z0-9]{24,40}$/.test(c)?c:""}catch(e){return ""}}
 (function(){ // one-time pairing link: .../#pair=<code>
@@ -226,10 +263,7 @@ function researchKey(r){
   return r.tozeret_cd+"-"+r.sug_degem+"-"+r.degem_cd+"-"+r.shnat_yitzur;
 }
 var CONF={high:["התאמה גבוהה","ok"],medium:["התאמה בינונית","warn"],low:["לא מאומת לרכב הזה","bad"],none:["לא נמצא","muted"]};
-function topicBlock(t){
-  var d=el("details","topic");var sm=el("summary");
-  sm.appendChild(el("span","tt",t.title||""));
-  var c=CONF[t.confidence]||CONF.none;sm.appendChild(el("span","badge "+c[1],c[0]));d.appendChild(sm);
+function topicBody(t,d){
   if(typeof t.score==="number"&&t.score>=1&&t.score<=10){
     var n=Math.round(t.score),st=el("p","stars");
     st.appendChild(el("span","on","★".repeat(n)));st.appendChild(el("span","off","★".repeat(10-n)));
@@ -252,7 +286,7 @@ function topicBlock(t){
     src.forEach(function(x,i){var a=el("a",null,x.title||x.url);a.href=x.url;a.target="_blank";a.rel="noopener";if(i)sp.appendChild(document.createTextNode(" · "));sp.appendChild(a)});
     d.appendChild(sp);
   }
-  return d;
+  if(has(t.updated))d.appendChild(el("p","src","נחקר בתאריך "+fmtDate(t.updated)));
 }
 function loadResearch(key,fresh){
   function get(u){return fetch(u,{cache:"no-store"}).then(function(x){if(!x.ok)throw 0;return x.json()})}
@@ -260,64 +294,129 @@ function loadResearch(key,fresh){
   var raw=RAW+encodeURIComponent(key)+".json"+(fresh?"?t="+Date.now():"");
   return fresh?get(raw).catch(function(){return get(local)}):get(local).catch(function(){return get(raw)});
 }
+// All status messages of the last 30 minutes, grouped by request id ("<key>:<topic>"), oldest first.
+function readStatuses(code){
+  return fetch(RELAY+code+"s/json?poll=1&since=30m",{cache:"no-store"}).then(function(x){return x.text()}).then(function(txt){
+    var by={};
+    txt.split("\n").forEach(function(line){
+      try{var ev=JSON.parse(line);if(ev.event!=="message")return;var m=JSON.parse(ev.message);if(m&&m.k){(by[m.k]=by[m.k]||[]).push(m)}}catch(e){}
+    });
+    return by;
+  });
+}
 function researchCard(r){
   var run=++researchRun;
   var c=section("מחקר לרכב הזה");c.classList.add("gap");
   var key=researchKey(r);
-  var body=el("div",null,"טוען…");c.appendChild(body);
   function alive(){return run===researchRun}
-  function show(d){
-    body.textContent="";
-    if(has(d.vehicle))body.appendChild(el("p","fit","נחקר עבור: "+d.vehicle+(has(d.updated)?" · עודכן "+fmtDate(d.updated):"")));
-    (d.topics||[]).forEach(function(t){body.appendChild(topicBlock(t))});
+  if(!key){c.appendChild(el("p","fit","מחקר זמין כרגע רק לרכב פרטי או מסחרי עם קוד דגם."));return c}
+  c.appendChild(el("p","fit","בחר נושא. המחקר מתבצע רק לנושא שבחרת, ונשמר לכל רכב מאותו דגם."));
+  var rows={},watching={},timer=null,sentAt={};
+  TOPICS.forEach(function(tp){
+    var d=el("details","topic");var sm=el("summary");
+    sm.appendChild(el("span","tt",tp[1]));var badge=el("span","badge muted","לא נחקר");sm.appendChild(badge);d.appendChild(sm);
+    var body=el("div");d.appendChild(body);c.appendChild(d);
+    rows[tp[0]]={d:d,badge:badge,body:body,state:"none",desc:tp[2]};
+    d.addEventListener("toggle",function(){if(d.open&&rows[tp[0]].state==="none")offer(tp[0])});
+  });
+  function setBadge(id,text,cls){var b=rows[id].badge;b.textContent=text;b.className="badge "+cls}
+  function showTopic(t){
+    var row=rows[t.id];if(!row)return;
+    row.state="done";row.body.textContent="";var cf=CONF[t.confidence]||CONF.none;setBadge(t.id,cf[0],cf[1]);
+    topicBody(t,row.body);delete watching[t.id];
   }
-  function status(text,cls,sub){
-    body.textContent="";
-    var p=el("p","rstat"+(cls?" "+cls:""),text);body.appendChild(p);
-    if(sub)body.appendChild(el("p","fit",sub));
+  function offer(id){
+    var row=rows[id];row.body.textContent="";
+    row.body.appendChild(el("p","fit",row.desc));
+    if(!pairCode()){row.body.appendChild(el("p","rstat warn","הטלפון עדיין לא מחובר לסוכן המחקר."));return}
+    var b=el("button",null,"חקור: "+row.d.querySelector(".tt").textContent);
+    b.addEventListener("click",function(){b.disabled=true;start(id)});row.body.appendChild(b);
   }
-  function request(){
-    var code=pairCode();
-    if(!code){status("הטלפון עדיין לא מחובר לסוכן המחקר.","warn","פותחים פעם אחת את קוד החיבור שמוצג במחשב, ומאותו רגע המחקר מתבצע לבד.");return}
-    var started=Math.floor(Date.now()/1000)-5,acked=false,tries=0,finished=false;
-    status("שולח בקשת מחקר…");
-    fetch(RELAY+code+"r",{method:"POST",body:key}).then(function(x){if(!x.ok)throw 0}).then(function(){
-      status("הבקשה נשלחה. ממתין למחשב…");tick();
-    }).catch(function(){if(alive())status("לא הצלחתי לשלוח את הבקשה.","bad","בדוק חיבור לאינטרנט וסרוק שוב את הרכב.")});
-    function tick(){
-      if(!alive()||finished)return;
-      tries++;
-      fetch(RELAY+code+"s/json?poll=1&since="+started,{cache:"no-store"}).then(function(x){return x.text()}).then(function(txt){
+  function progress(id,list,note){
+    var row=rows[id],last=list.length?list[list.length-1]:null;
+    row.state="busy";row.body.textContent="";
+    var pct=last&&typeof last.p==="number"?last.p:2;
+    setBadge(id,pct+"%","warn");
+    var bar=el("div","bar"),fill=el("div","fill");fill.style.width=pct+"%";bar.appendChild(fill);row.body.appendChild(bar);
+    row.body.appendChild(el("p","rstat",(last&&has(last.m)?last.m:"ממתין למחשב")+"…"));
+    if(note)row.body.appendChild(el("p","fit "+(note[1]||""),note[0]));
+    var seen={},ol=el("ol","steps");
+    list.forEach(function(m){if(!has(m.m)||seen[m.m])return;seen[m.m]=1;ol.appendChild(el("li",null,m.m))});
+    if(ol.children.length>1)row.body.appendChild(ol);
+  }
+  function fail(id,text,sub,retry){
+    var row=rows[id];row.state="none";row.body.textContent="";setBadge(id,"לא הצליח","bad");delete watching[id];
+    row.body.appendChild(el("p","rstat bad",text));if(has(sub))row.body.appendChild(el("p","fit",sub));
+    if(retry){var b=el("button","secondary","נסה שוב");b.addEventListener("click",function(){b.disabled=true;start(id)});row.body.appendChild(b)}
+  }
+  function finish(id){
+    var row=rows[id];row.state="loading";setBadge(id,"100%","ok");row.body.textContent="";row.body.appendChild(el("p","rstat","המחקר הסתיים. טוען…"));
+    delete watching[id];var n=0;
+    (function load(){
+      loadResearch(key,true).then(function(d){
         if(!alive())return;
-        var last=null;
-        txt.split("\n").forEach(function(line){
-          try{var ev=JSON.parse(line);if(ev.event!=="message")return;var m=JSON.parse(ev.message);if(m&&m.k===key)last=m}catch(e){}
-        });
-        if(last){
-          acked=true;
-          if(last.s==="done"){
-            finished=true;status("המחקר הסתיים. טוען…");
-            var n=0;(function load(){
-              loadResearch(key,true).then(function(d){if(alive())show(d)}).catch(function(){
-                if(!alive())return;
-                if(++n<12)setTimeout(load,5000);else status("המחקר הסתיים אבל הקובץ עוד לא זמין.","warn","סרוק שוב את הרכב בעוד דקה.");
-              });
-            })();
-            return;
-          }
-          if(last.s==="failed"){finished=true;status("המחקר לא הצליח.","bad",last.m||"");return}
-          if(last.s==="limit"){finished=true;status("המחקר לא התחיל.","warn",last.m||"");return}
-          if(last.s==="working")status("המחקר בעבודה: "+(last.m||"")+"…",null,"זה לוקח בדרך כלל כמה דקות. אפשר להשאיר את הדף פתוח או לחזור אחר כך – התוצאה תישמר.");
-          else status("המחשב קיבל את הבקשה. המחקר בתור…");
-        }else if(!acked&&tries>=5){
-          status("המחשב לא עונה כרגע.","warn","כנראה שהוא כבוי או לא מחובר לאינטרנט. הבקשה נשמרה ותטופל כשהוא יידלק (עד 12 שעות).");
-        }
-        if(tries<240)setTimeout(tick,tries<12?6000:10000);
-      }).catch(function(){if(alive()&&tries<240)setTimeout(tick,10000)});
-    }
+        var t=(d.topics||[]).filter(function(x){return x.id===id})[0];
+        if(t)showTopic(t);else throw 0;
+      }).catch(function(){
+        if(!alive())return;
+        if(++n<14)setTimeout(load,5000);else fail(id,"המחקר הסתיים אבל התוצאה עוד לא זמינה.","סרוק שוב את הרכב בעוד דקה.",false);
+      });
+    })();
   }
-  if(!key){status("מחקר אוטומטי זמין כרגע רק לרכב פרטי או מסחרי עם קוד דגם.","muted");return c}
-  loadResearch(key,false).then(function(d){if(alive())show(d)}).catch(function(){if(alive())request()});
+  function apply(id,list){ // list = status messages of this request, oldest first
+    var last=list[list.length-1];
+    if(last.s==="done"){finish(id);return}
+    if(last.s==="failed"){fail(id,"המחקר לא הצליח.",last.m,false);return}
+    if(last.s==="limit"){fail(id,"המחקר לא התחיל.",last.m,false);return}
+    progress(id,list);
+  }
+  function poll(){
+    timer=null;if(!alive())return;
+    var ids=Object.keys(watching);if(!ids.length)return;
+    readStatuses(pairCode()).then(function(by){
+      if(!alive())return;
+      ids.forEach(function(id){
+        if(!watching[id])return;
+        var list=(by[key+":"+id]||[]).filter(function(m){return m.t>=watching[id]-2});
+        if(list.length)apply(id,list);
+        else if(Date.now()/1000-(sentAt[id]||0)>35)progress(id,[],["המחשב לא עונה כרגע. כנראה שהוא כבוי או לא מחובר לאינטרנט. הבקשה נשמרה ותטופל כשהוא יידלק (עד 12 שעות).","warn"]);
+      });
+    }).catch(function(){}).then(function(){if(alive()&&Object.keys(watching).length&&!timer)timer=setTimeout(poll,5000)});
+  }
+  function watch(id,since){watching[id]=since;if(!timer)timer=setTimeout(poll,1500)}
+  function start(id){
+    var code=pairCode();if(!code){offer(id);return}
+    progress(id,[]);
+    // First look for a request for this model+subject that is already running or finished; send a new one only if there is none.
+    readStatuses(code).catch(function(){return {}}).then(function(by){
+      if(!alive())return;
+      var list=by[key+":"+id]||[],last=list[list.length-1],now=Date.now()/1000;
+      if(last&&last.s==="done"){finish(id);return}
+      if(last&&(last.s==="queued"||last.s==="working")&&now-last.t<1200){
+        var from=last.t;for(var i=list.length-1;i>=0;i--){if(list[i].s==="queued"){from=list[i].t;break}from=list[i].t}
+        sentAt[id]=now;watch(id,from);apply(id,list.filter(function(m){return m.t>=from-2}));return;
+      }
+      sentAt[id]=now;
+      fetch(RELAY+code+"r",{method:"POST",body:key+":"+id}).then(function(x){if(!x.ok)throw 0;watch(id,Math.floor(now)-3)})
+        .catch(function(){if(alive())fail(id,"לא הצלחתי לשלוח את הבקשה.","בדוק חיבור לאינטרנט.",true)});
+    });
+  }
+  // On open: show what is already researched, and re-attach to anything still running (e.g. after a refresh).
+  loadResearch(key,false).then(function(d){if(alive())(d.topics||[]).forEach(showTopic)}).catch(function(){}).then(function(){
+    var code=pairCode();if(!alive()||!code)return;
+    readStatuses(code).then(function(by){
+      if(!alive())return;
+      var now=Date.now()/1000;
+      TOPICS.forEach(function(tp){
+        var id=tp[0],list=by[key+":"+id]||[],last=list[list.length-1];
+        if(!last||rows[id].state!=="none")return;
+        if((last.s==="queued"||last.s==="working")&&now-last.t<1200){
+          var from=last.t;for(var i=list.length-1;i>=0;i--){from=list[i].t;if(list[i].s==="queued")break}
+          sentAt[id]=now;rows[id].d.open=true;watch(id,from);apply(id,list.filter(function(m){return m.t>=from-2}));
+        }else if(last.s==="done"&&now-last.t<600){finish(id)}
+      });
+    }).catch(function(){});
+  });
   return c;
 }
 
@@ -479,7 +578,7 @@ function render(plate,found,extra,fromPhoto){
   foot.appendChild(el("small",null,"מקור: מאגרי משרד התחבורה הפתוחים (data.gov.il). עבר ביטוחי ותאונות אינם מפורסמים במאגרים האלה. המאגר מפרסם רק את הקילומטראז' של הטסט האחרון."));
   out.appendChild(foot);
 
-  saveRecent(plate,title,h?Number(h.kilometer_test_aharon)||0:0);drawRecent();
+  saveRecent(plate,title,h?Number(h.kilometer_test_aharon)||0:0,[r.shnat_yitzur,color].filter(has).join(" · "));drawRecent();
 }
 
 function loadExtra(plate,found){
@@ -632,7 +731,7 @@ $("go").addEventListener("click",function(){lookup($("plate").value,false)});
 $("plate").addEventListener("keydown",function(e){if(e.key==="Enter")lookup($("plate").value,false)});
 $("photo").addEventListener("change",function(e){var f=e.target.files&&e.target.files[0];e.target.value="";if(f)readPhoto(f)});
 drawRecent();
-if(window.__paired)setMsg("הטלפון חובר לסוכן המחקר. מעכשיו מחקר לרכב חדש מתבצע לבד.");
+if(window.__paired)setMsg("הטלפון חובר לסוכן המחקר.");
 window.__carScan={candidates:candidates,cropPlate:cropPlate,readPhoto:readPhoto};
 })();
 </script>
