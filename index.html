@@ -352,16 +352,20 @@ function busAdd(ev){
     var m=JSON.parse(ev.message);if(m&&m.k)(bus.by[m.k]=bus.by[m.k]||[]).push(m);
   }catch(e){}
 }
+// One live connection. If it drops, wait before reconnecting (doubling up to 2 minutes): the browser's own
+// instant retry would flood the relay and get this device blocked for a while.
+function busStream(code,delay){
+  try{
+    var es=new EventSource(RELAY+code+"s/sse?since="+(Math.floor(Date.now()/1000)-60));bus.es=es;
+    es.onmessage=function(e){delay=5000;try{busAdd(JSON.parse(e.data))}catch(err){}};
+    es.onerror=function(){es.close();setTimeout(function(){busStream(code,Math.min(delay*2,120000))},delay)};
+  }catch(e){}
+}
 function readStatuses(code){
   if(bus.ready)return bus.ready.then(function(){return bus.by});
   bus.ready=fetch(RELAY+code+"s/json?poll=1&since=30m",{cache:"no-store"}).then(function(x){return x.text()}).then(function(txt){
     txt.split("\n").forEach(function(line){try{busAdd(JSON.parse(line))}catch(e){}});
-  }).catch(function(){}).then(function(){
-    try{
-      bus.es=new EventSource(RELAY+code+"s/sse?since="+(Math.floor(Date.now()/1000)-20));
-      bus.es.onmessage=function(e){try{busAdd(JSON.parse(e.data))}catch(err){}};
-    }catch(e){}
-  });
+  }).catch(function(){}).then(function(){busStream(code,5000)});
   return bus.ready.then(function(){return bus.by});
 }
 function researchCard(r){
