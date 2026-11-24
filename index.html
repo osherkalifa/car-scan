@@ -85,6 +85,18 @@ figure img{max-width:100%;border-radius:8px}
 .diag img{display:block;width:100%;height:auto;border-radius:6px;background:#fff}
 .diag figcaption{font-size:14px;margin-top:6px;font-weight:600}
 .srcl{font-size:12px;color:var(--accent)}
+.fab{position:fixed;bottom:16px;left:16px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.3);z-index:5}
+.chat{position:fixed;inset:0;background:var(--bg);z-index:10;display:flex;flex-direction:column;padding:12px 16px}
+.chat[hidden]{display:none}
+.chathead{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.chathead .hs{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl}
+button.sm{min-height:36px;padding:6px 12px;font-size:14px}
+.chatlog{flex:1 1 auto;overflow-y:auto;padding:10px 0;display:flex;flex-direction:column;gap:8px}
+.bub{max-width:88%;padding:9px 12px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px}
+.bub.me{align-self:flex-start;background:var(--accent);color:var(--accent-ink)}
+.bub.ai{align-self:flex-end;background:var(--card);border:1px solid var(--line)}
+.chatrow{display:flex;gap:8px;align-items:flex-end;padding-top:8px}
+.chatrow textarea{flex:1 1 auto;min-width:0;font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);resize:none}
 .hist{margin-top:12px}
 .hist summary{cursor:pointer;font-weight:700;padding:6px 0}
 .hrow{display:flex;width:100%;gap:10px;align-items:center;justify-content:flex-start;background:transparent;color:var(--ink);border:0;border-top:1px solid var(--line);border-radius:0;padding:10px 2px;min-height:52px;text-align:start;font-weight:400}
@@ -116,6 +128,13 @@ small{color:var(--muted)}
   </div>
 
   <div id="out"></div>
+</div>
+<button id="chatbtn" class="fab" aria-label="שאל את העוזר">💬 שאל</button>
+<div id="chat" class="chat" hidden>
+  <div class="chathead"><strong>עוזר</strong><span id="chatcar" class="hs"></span>
+    <button id="chatclear" class="secondary sm">נקה</button><button id="chatclose" class="secondary sm">סגור</button></div>
+  <div id="chatlog" class="chatlog"></div>
+  <div class="chatrow"><textarea id="chatin" rows="2" placeholder="כתוב שאלה…"></textarea><button id="chatsend">שלח</button></div>
 </div>
 
 <script>
@@ -451,6 +470,92 @@ function researchCard(r){
   return c;
 }
 
+// ---------- encrypted messages to the home agent (chat, plate photos) ----------
+function msgKey(){
+  return crypto.subtle.digest("SHA-256",new TextEncoder().encode("msg:"+pairCode())).then(function(k){
+    return crypto.subtle.importKey("raw",k,"AES-GCM",false,["encrypt","decrypt"]);
+  });
+}
+function sealBytes(bytes){
+  var iv=crypto.getRandomValues(new Uint8Array(12));
+  return msgKey().then(function(key){return crypto.subtle.encrypt({name:"AES-GCM",iv:iv},key,bytes)}).then(function(ct){
+    var out=new Uint8Array(12+ct.byteLength);out.set(iv,0);out.set(new Uint8Array(ct),12);return out;
+  });
+}
+function unsealB64(b64){
+  var bin=atob(b64),buf=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
+  return msgKey().then(function(key){return crypto.subtle.decrypt({name:"AES-GCM",iv:buf.slice(0,12)},key,buf.slice(12))})
+    .then(function(p){return new TextDecoder().decode(p)});
+}
+function toB64(bytes){var s="";for(var i=0;i<bytes.length;i++)s+=String.fromCharCode(bytes[i]);return btoa(s)}
+function newId(){var a=crypto.getRandomValues(new Uint8Array(6)),s="";for(var i=0;i<a.length;i++)s+=("0"+a[i].toString(16)).slice(-2);return s}
+// Waits for the agent's answer to request `rid`. onWork(text) reports progress. Resolves with the "done" messages.
+function awaitQuick(rid,since,onWork,maxSec){
+  var code=pairCode(),t0=Date.now();
+  return new Promise(function(res,rej){
+    (function tick(){
+      fetch(RELAY+code+"s/json?poll=1&since="+since,{cache:"no-store"}).then(function(x){return x.text()}).then(function(txt){
+        var list=[];
+        txt.split("\n").forEach(function(line){try{var ev=JSON.parse(line);if(ev.event!=="message")return;var m=JSON.parse(ev.message);if(m&&m.k===rid)list.push(m)}catch(e){}});
+        var done=list.filter(function(m){return m.s==="done"});
+        if(list.some(function(m){return m.s==="failed"})){rej(new Error((list.filter(function(m){return m.s==="failed"})[0].m)||"failed"));return}
+        if(done.length&&(!done[0].n||done.length>=done[0].n)){res(done);return}
+        var w=list.filter(function(m){return m.s==="working"});
+        if(onWork)onWork(w.length?w[w.length-1].m:null,(Date.now()-t0)/1000);
+        if((Date.now()-t0)/1000>maxSec){rej(new Error("timeout"));return}
+        setTimeout(tick,2500);
+      }).catch(function(){if((Date.now()-t0)/1000>maxSec)rej(new Error("timeout"));else setTimeout(tick,4000)});
+    })();
+  });
+}
+
+// ---------- plate photo read by the agent (used when the on-device reading fails) ----------
+function agentReadPlate(canvas){
+  if(!pairCode()||!window.crypto||!crypto.subtle)return Promise.reject(new Error("unpaired"));
+  var rid="plate:"+newId(),since=Math.floor(Date.now()/1000)-3;
+  return new Promise(function(res){canvas.toBlob(res,"image/jpeg",0.82)}).then(function(blob){return blob.arrayBuffer()})
+    .then(function(buf){return sealBytes(new Uint8Array(buf))})
+    .then(function(sealed){return fetch(RELAY+pairCode()+"r",{method:"PUT",headers:{"Filename":"p.bin","Message":rid},body:sealed})})
+    .then(function(x){if(!x.ok)throw new Error("send");
+      return awaitQuick(rid,since,function(m,sec){setMsg(sec>25&&!m?"המחשב לא עונה כרגע…":"הקריאה המהירה לא הצליחה. הסוכן קורא את הלוחית מהתמונה…")},75)})
+    .then(function(done){return String(done[0].m||"").split(",").filter(function(p){return /^\d{5,8}$/.test(p)})});
+}
+
+// ---------- chat ----------
+var chatLog=[];try{chatLog=JSON.parse(localStorage.getItem("cs_chat")||"[]")||[]}catch(e){chatLog=[]}
+var currentCar=null; // {key,title} of the car on screen, set by render()
+function chatSave(){try{localStorage.setItem("cs_chat",JSON.stringify(chatLog.slice(-40)))}catch(e){}}
+function chatDraw(){
+  var box=$("chatlog");box.textContent="";
+  if(!chatLog.length)box.appendChild(el("p","fit","אפשר לשאול כל שאלה על רכבים, תקלות, חלקים וכלים. אם יש רכב פתוח, התשובות יתייחסו אליו."));
+  chatLog.forEach(function(m){box.appendChild(el("div","bub "+(m.r==="u"?"me":"ai")+(m.err?" bad":""),m.t))});
+  $("chatcar").textContent=currentCar?"מדבר על: "+currentCar.title:"אין רכב פתוח – שאלה כללית";
+  box.scrollTop=box.scrollHeight;
+}
+function chatOpen(v){$("chat").hidden=!v;if(v){chatDraw();setTimeout(function(){$("chatin").focus()},50)}}
+var chatBusy=false;
+function chatSend(){
+  var inp=$("chatin"),q=inp.value.trim();
+  if(!q||chatBusy)return;
+  if(!pairCode()||!window.crypto||!crypto.subtle){chatLog.push({r:"a",t:"הטלפון עדיין לא מחובר לסוכן, ולכן אי אפשר לשאול.",err:1});chatDraw();return}
+  var hist=chatLog.filter(function(m){return !m.err}).slice(-6).map(function(m){return {r:m.r,t:m.t.slice(0,220)}});
+  chatLog.push({r:"u",t:q});inp.value="";chatBusy=true;$("chatsend").disabled=true;
+  var wait={r:"a",t:"שולח…"};chatLog.push(wait);chatDraw();
+  var rid="chat:"+newId(),since=Math.floor(Date.now()/1000)-3;
+  var body={q:q.slice(0,600),h:hist};if(currentCar)body.key=currentCar.key;
+  function fit(){var s=JSON.stringify(body);while(new TextEncoder().encode(s).length>2400&&body.h.length){body.h.shift();s=JSON.stringify(body)}return s}
+  sealBytes(new TextEncoder().encode(fit())).then(function(sealed){
+    return fetch(RELAY+pairCode()+"r",{method:"POST",body:rid+":"+toB64(sealed)});
+  }).then(function(x){if(!x.ok)throw new Error("send");
+    return awaitQuick(rid,since,function(m,sec){wait.t=m||(sec>25?"המחשב לא עונה כרגע. ממתין…":"ממתין למחשב…");chatDraw()},240);
+  }).then(function(done){
+    done.sort(function(a,b){return (a.i||1)-(b.i||1)});
+    return unsealB64(done.map(function(m){return m.m}).join(""));
+  }).then(function(text){wait.t=text}).catch(function(e){
+    wait.err=1;wait.t=e&&e.message==="timeout"?"לא הגיעה תשובה מהמחשב. ייתכן שהוא כבוי.":"השאלה לא נענתה. נסה שוב.";
+  }).then(function(){chatBusy=false;$("chatsend").disabled=false;chatSave();chatDraw()});
+}
+
 // Warning lights: everything in the open registries that a buyer/mechanic would want to notice first.
 function flagsCard(plate,found,extra){
   var r=found.rec,h=extra.hist,all=found.all||{},pub=all.pub,list=[];
@@ -604,6 +709,7 @@ function render(plate,found,extra,fromPhoto){
   out.appendChild(rc);
 
   out.appendChild(researchCard(r));
+  currentCar=researchKey(r)?{key:researchKey(r),title:[title,r.shnat_yitzur].filter(has).join(" ")}:null;
 
   var foot=el("div","card");
   foot.appendChild(el("small",null,"מקור: מאגרי משרד התחבורה הפתוחים (data.gov.il). עבר ביטוחי ותאונות אינם מפורסמים במאגרים האלה. המאגר מפרסם רק את הקילומטראז' של הטסט האחרון."));
@@ -733,8 +839,20 @@ function candidates(text){
 function readPhoto(file){
   if(busy)return;
   setMsg("קורא את הלוחית מהתמונה…");
-  var texts=[];
+  var texts=[],fullCanvas=null;
+  // Resolves true when one of the candidate numbers exists in the registry and was opened.
+  function tryCands(cands){
+    var i=0;
+    function next(){
+      if(i>=cands.length)return Promise.resolve(false);
+      var c=cands[i++];
+      return findPrimary(c).then(function(f){if(f.key){$("plate").value=c;return lookup(c,true,f).then(function(){return true})}return next()});
+    }
+    if(cands.length)setMsg("בודק את המספר שנקרא…");
+    return next();
+  }
   fileToCanvas(file,1600).then(function(full){
+    fullCanvas=full;
     return getWorker().then(function(w){
       var crop=cropPlate(full);
       var first=crop?w.setParameters({tessedit_pageseg_mode:"7"}).then(function(){return w.recognize(crop)}).then(function(r){texts.push(r.data.text)}):Promise.resolve();
@@ -744,26 +862,34 @@ function readPhoto(file){
       });
     });
   }).then(function(){
-    var cands=candidates(texts.join("\n"));
-    if(!cands.length){setMsg("לא הצלחתי לקרוא מספר מהתמונה. צלם מקרוב ובאור טוב, או הקלד את המספר.",true);return}
-    setMsg("בודק את המספר שנקרא…");
-    // keep the first candidate the registry recognises
-    var i=0;
-    function next(){
-      if(i>=cands.length){$("plate").value=cands[0];setMsg("קראתי "+fmtPlate(cands[0])+" אבל הוא לא נמצא במאגר. תקן את המספר ולחץ חפש.",true);return}
-      var c=cands[i++];
-      return findPrimary(c).then(function(f){if(f.key){$("plate").value=c;return lookup(c,true,f)}return next()});
-    }
-    return next();
-  }).catch(function(){setMsg("קריאת התמונה לא זמינה כרגע. הקלד את המספר ידנית.",true)});
+    return tryCands(candidates(texts.join("\n")));
+  }).catch(function(){return false}).then(function(ok){
+    if(ok)return;
+    // On-device reading failed: let the agent (which can really see the photo) read it.
+    if(!fullCanvas){setMsg("לא הצלחתי לפתוח את התמונה. נסה שוב או הקלד את המספר.",true);return}
+    return agentReadPlate(fullCanvas).then(function(list){
+      return tryCands(list).then(function(ok2){
+        if(ok2)return;
+        if(list.length){$("plate").value=list[0];setMsg("נקרא "+fmtPlate(list[0])+" אבל הוא לא נמצא במאגר. תקן את המספר ולחץ חפש.",true)}
+        else setMsg("לא נמצאה לוחית בתמונה. צלם שוב או הקלד את המספר.",true);
+      });
+    }).catch(function(e){
+      setMsg(e&&e.message==="unpaired"?"לא הצלחתי לקרוא את המספר. הקלד אותו ידנית.":"קריאת הלוחית לא הצליחה כרגע. הקלד את המספר ידנית.",true);
+    });
+  });
 }
 
 $("go").addEventListener("click",function(){lookup($("plate").value,false)});
 $("plate").addEventListener("keydown",function(e){if(e.key==="Enter")lookup($("plate").value,false)});
 $("photo").addEventListener("change",function(e){var f=e.target.files&&e.target.files[0];e.target.value="";if(f)readPhoto(f)});
 drawRecent();
+$("chatbtn").addEventListener("click",function(){chatOpen(true)});
+$("chatclose").addEventListener("click",function(){chatOpen(false)});
+$("chatclear").addEventListener("click",function(){chatLog=[];chatSave();chatDraw()});
+$("chatsend").addEventListener("click",chatSend);
+$("chatin").addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();chatSend()}});
 if(window.__paired)setMsg("הטלפון חובר לסוכן המחקר.");
-window.__carScan={candidates:candidates,cropPlate:cropPlate,readPhoto:readPhoto};
+window.__carScan={candidates:candidates,cropPlate:cropPlate,readPhoto:readPhoto,agentReadPlate:agentReadPlate};
 })();
 </script>
 </body>
