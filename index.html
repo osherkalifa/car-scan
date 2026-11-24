@@ -96,6 +96,8 @@ button.sm{min-height:36px;padding:6px 12px;font-size:14px}
 .bub.me{align-self:flex-start;background:var(--accent);color:var(--accent-ink)}
 .bub.ai{align-self:flex-end;background:var(--card);border:1px solid var(--line)}
 .chatrow{display:flex;gap:8px;align-items:flex-end;padding-top:8px}
+.chatrow #chatmic{min-width:48px;padding:12px}
+.chatrow #chatmic.rec{background:var(--bad);color:#fff;border-color:var(--bad)}
 .chatrow textarea{flex:1 1 auto;min-width:0;font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);resize:none}
 .hist{margin-top:12px}
 .hist summary{cursor:pointer;font-weight:700;padding:6px 0}
@@ -134,7 +136,7 @@ small{color:var(--muted)}
   <div class="chathead"><strong>עוזר</strong><span id="chatcar" class="hs"></span>
     <button id="chatclear" class="secondary sm">נקה</button><button id="chatclose" class="secondary sm">סגור</button></div>
   <div id="chatlog" class="chatlog"></div>
-  <div class="chatrow"><textarea id="chatin" rows="2" placeholder="כתוב שאלה…"></textarea><button id="chatsend">שלח</button></div>
+  <div class="chatrow"><button id="chatmic" class="secondary" aria-label="הכתבה בקול" hidden>🎤</button><textarea id="chatin" rows="2" placeholder="כתוב או הכתב שאלה…"></textarea><button id="chatsend">שלח</button></div>
 </div>
 
 <script>
@@ -901,7 +903,30 @@ drawRecent();
 $("chatbtn").addEventListener("click",function(){chatOpen(true)});
 $("chatclose").addEventListener("click",function(){chatOpen(false)});
 $("chatclear").addEventListener("click",function(){chatLog=[];chatSave();chatDraw()});
-$("chatsend").addEventListener("click",chatSend);
+$("chatsend").addEventListener("click",function(){dictStop();chatSend()});
+// Dictation in Hebrew through the browser's own speech recognition (free, no account).
+var dict=null,dictOn=false,dictBase="";
+function dictStop(){if(dict&&dictOn){try{dict.stop()}catch(e){}}}
+(function(){
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR)return;
+  var b=$("chatmic");b.hidden=false;
+  b.addEventListener("click",function(){
+    if(dictOn){dictStop();return}
+    dict=new SR();dict.lang="he-IL";dict.interimResults=true;dict.continuous=true;
+    dictBase=$("chatin").value?$("chatin").value.replace(/\s+$/,"")+" ":"";
+    dict.onresult=function(e){
+      var txt="";for(var i=0;i<e.results.length;i++)txt+=e.results[i][0].transcript;
+      $("chatin").value=dictBase+txt;
+    };
+    dict.onstart=function(){dictOn=true;b.textContent="⏹";b.classList.add("rec")};
+    dict.onend=function(){dictOn=false;b.textContent="🎤";b.classList.remove("rec")};
+    dict.onerror=function(e){
+      if(e.error==="not-allowed"||e.error==="service-not-allowed"){chatLog.push({r:"a",t:"אין הרשאה למיקרופון. אשר גישה למיקרופון לאתר בהגדרות הדפדפן.",err:1});chatDraw()}
+    };
+    try{dict.start()}catch(err){}
+  });
+})();
 $("chatin").addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();chatSend()}});
 if(window.__paired)setMsg("הטלפון חובר לסוכן המחקר.");
 window.__carScan={candidates:candidates,cropPlate:cropPlate,readPhoto:readPhoto,agentReadPlate:agentReadPlate};
