@@ -76,6 +76,9 @@ figure img{max-width:100%;border-radius:8px}
 .src{font-size:13px;color:var(--muted)}
 .src a{color:var(--accent)}
 .topic ul{margin:6px 0;padding-inline-start:20px;font-size:14px}
+.rstat{font-weight:700;margin:6px 0}
+.stars{margin:8px 0 2px;font-size:18px;direction:ltr;text-align:right}
+.stars .on{color:#f5b301}.stars .off{color:var(--line)}.stars .num{font-size:14px;color:var(--muted)}
 
 small{color:var(--muted)}
 </style>
@@ -207,17 +210,31 @@ function drawRecent(){
   });
 }
 
+// ---------- research (done by the agent on the home PC; the app only asks and shows) ----------
+var RELAY="https://ntfy.sh/";
+var RAW="https://raw.githubusercontent.com/osherkalifa/car-scan/main/research/";
+var researchRun=0; // bumps on every render so an old car's polling stops
+function pairCode(){try{var c=localStorage.getItem("cs_pair")||"";return /^[a-z0-9]{24,40}$/.test(c)?c:""}catch(e){return ""}}
+(function(){ // one-time pairing link: .../#pair=<code>
+  var m=location.hash.match(/^#pair=([a-z0-9]{24,40})$/);
+  if(!m)return;
+  try{localStorage.setItem("cs_pair",m[1]);window.__paired=true}catch(e){}
+  try{history.replaceState(null,"",location.pathname+location.search)}catch(e){location.hash=""}
+})();
 function researchKey(r){
-  if(!has(r.tozeret_cd)||!has(r.shnat_yitzur))return null;
-  var m=has(r.degem_cd)?String(r.degem_cd):String(r.degem_nm||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
-  if(!m)return null;
-  return r.tozeret_cd+"-"+m+"-"+r.shnat_yitzur;
+  if(!has(r.tozeret_cd)||!has(r.degem_cd)||!has(r.shnat_yitzur)||!/^[A-Z]{1,3}$/.test(String(r.sug_degem||"")))return null;
+  return r.tozeret_cd+"-"+r.sug_degem+"-"+r.degem_cd+"-"+r.shnat_yitzur;
 }
 var CONF={high:["התאמה גבוהה","ok"],medium:["התאמה בינונית","warn"],low:["לא מאומת לרכב הזה","bad"],none:["לא נמצא","muted"]};
 function topicBlock(t){
   var d=el("details","topic");var sm=el("summary");
   sm.appendChild(el("span","tt",t.title||""));
   var c=CONF[t.confidence]||CONF.none;sm.appendChild(el("span","badge "+c[1],c[0]));d.appendChild(sm);
+  if(typeof t.score==="number"&&t.score>=1&&t.score<=10){
+    var n=Math.round(t.score),st=el("p","stars");
+    st.appendChild(el("span","on","★".repeat(n)));st.appendChild(el("span","off","★".repeat(10-n)));
+    st.appendChild(el("span","num"," "+t.score+" מתוך 10"));d.appendChild(st);
+  }
   if(has(t.verdict))d.appendChild(el("p","verdict",t.verdict));
   if(has(t.fit))d.appendChild(el("p","fit",t.fit));
   (t.tables||[]).forEach(function(tb){
@@ -228,11 +245,6 @@ function topicBlock(t){
     (tb.rows||[]).forEach(function(rw){var tr=el("tr");rw.forEach(function(v){tr.appendChild(el("td",null,v))});tab.appendChild(tr)});
     w.appendChild(tab);d.appendChild(w);
   });
-  (t.images||[]).forEach(function(im){
-    if(!/^https:\/\//.test(im.url||""))return;
-    var f=el("figure");var i=el("img");i.src=im.url;i.alt=im.caption||"";i.loading="lazy";f.appendChild(i);
-    if(has(im.caption))f.appendChild(el("figcaption",null,im.caption));d.appendChild(f);
-  });
   if((t.notes||[]).length){var ul=el("ul");t.notes.forEach(function(n){ul.appendChild(el("li",null,n))});d.appendChild(ul)}
   var src=(t.sources||[]).filter(function(x){return /^https:\/\//.test(x.url||"")});
   if(src.length){
@@ -242,28 +254,70 @@ function topicBlock(t){
   }
   return d;
 }
-function researchCard(r,title){
+function loadResearch(key,fresh){
+  function get(u){return fetch(u,{cache:"no-store"}).then(function(x){if(!x.ok)throw 0;return x.json()})}
+  var local="research/"+encodeURIComponent(key)+".json";
+  var raw=RAW+encodeURIComponent(key)+".json"+(fresh?"?t="+Date.now():"");
+  return fresh?get(raw).catch(function(){return get(local)}):get(local).catch(function(){return get(raw)});
+}
+function researchCard(r){
+  var run=++researchRun;
   var c=section("מחקר לרכב הזה");c.classList.add("gap");
   var key=researchKey(r);
   var body=el("div",null,"טוען…");c.appendChild(body);
-  function missing(){
-    body.textContent="";
-    body.appendChild(el("p",null,"הדגם הזה עדיין לא נחקר. פיוזים, דיאגרמות חשמל ומומנטים יופיעו כאן אחרי מחקר."));
-    var req="מחקר לרכב: "+title+" · "+(r.degem_nm||"")+" · "+(r.shnat_yitzur||"")+" · מנוע "+(r.degem_manoa||"לא ידוע")+" · מפתח "+(key||"ללא");
-    var b=el("button","secondary","העתק בקשת מחקר");
-    b.addEventListener("click",function(){
-      var done=function(){b.textContent="הועתק"};
-      var show=function(){body.appendChild(el("p","fit",req))};
-      if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(req).then(done,show);else show();
-    });
-    body.appendChild(b);
-  }
-  if(!key){missing();return c}
-  fetch("research/"+encodeURIComponent(key)+".json",{cache:"no-store"}).then(function(x){if(!x.ok)throw 0;return x.json()}).then(function(d){
+  function alive(){return run===researchRun}
+  function show(d){
     body.textContent="";
     if(has(d.vehicle))body.appendChild(el("p","fit","נחקר עבור: "+d.vehicle+(has(d.updated)?" · עודכן "+fmtDate(d.updated):"")));
     (d.topics||[]).forEach(function(t){body.appendChild(topicBlock(t))});
-  }).catch(missing);
+  }
+  function status(text,cls,sub){
+    body.textContent="";
+    var p=el("p","rstat"+(cls?" "+cls:""),text);body.appendChild(p);
+    if(sub)body.appendChild(el("p","fit",sub));
+  }
+  function request(){
+    var code=pairCode();
+    if(!code){status("הטלפון עדיין לא מחובר לסוכן המחקר.","warn","פותחים פעם אחת את קוד החיבור שמוצג במחשב, ומאותו רגע המחקר מתבצע לבד.");return}
+    var started=Math.floor(Date.now()/1000)-5,acked=false,tries=0,finished=false;
+    status("שולח בקשת מחקר…");
+    fetch(RELAY+code+"r",{method:"POST",body:key}).then(function(x){if(!x.ok)throw 0}).then(function(){
+      status("הבקשה נשלחה. ממתין למחשב…");tick();
+    }).catch(function(){if(alive())status("לא הצלחתי לשלוח את הבקשה.","bad","בדוק חיבור לאינטרנט וסרוק שוב את הרכב.")});
+    function tick(){
+      if(!alive()||finished)return;
+      tries++;
+      fetch(RELAY+code+"s/json?poll=1&since="+started,{cache:"no-store"}).then(function(x){return x.text()}).then(function(txt){
+        if(!alive())return;
+        var last=null;
+        txt.split("\n").forEach(function(line){
+          try{var ev=JSON.parse(line);if(ev.event!=="message")return;var m=JSON.parse(ev.message);if(m&&m.k===key)last=m}catch(e){}
+        });
+        if(last){
+          acked=true;
+          if(last.s==="done"){
+            finished=true;status("המחקר הסתיים. טוען…");
+            var n=0;(function load(){
+              loadResearch(key,true).then(function(d){if(alive())show(d)}).catch(function(){
+                if(!alive())return;
+                if(++n<12)setTimeout(load,5000);else status("המחקר הסתיים אבל הקובץ עוד לא זמין.","warn","סרוק שוב את הרכב בעוד דקה.");
+              });
+            })();
+            return;
+          }
+          if(last.s==="failed"){finished=true;status("המחקר לא הצליח.","bad",last.m||"");return}
+          if(last.s==="limit"){finished=true;status("המחקר לא התחיל.","warn",last.m||"");return}
+          if(last.s==="working")status("המחקר בעבודה: "+(last.m||"")+"…",null,"זה לוקח בדרך כלל כמה דקות. אפשר להשאיר את הדף פתוח או לחזור אחר כך – התוצאה תישמר.");
+          else status("המחשב קיבל את הבקשה. המחקר בתור…");
+        }else if(!acked&&tries>=5){
+          status("המחשב לא עונה כרגע.","warn","כנראה שהוא כבוי או לא מחובר לאינטרנט. הבקשה נשמרה ותטופל כשהוא יידלק (עד 12 שעות).");
+        }
+        if(tries<240)setTimeout(tick,tries<12?6000:10000);
+      }).catch(function(){if(alive()&&tries<240)setTimeout(tick,10000)});
+    }
+  }
+  if(!key){status("מחקר אוטומטי זמין כרגע רק לרכב פרטי או מסחרי עם קוד דגם.","muted");return c}
+  loadResearch(key,false).then(function(d){if(alive())show(d)}).catch(function(){if(alive())request()});
   return c;
 }
 
@@ -419,7 +473,7 @@ function render(plate,found,extra,fromPhoto){
   });
   out.appendChild(rc);
 
-  out.appendChild(researchCard(r,title));
+  out.appendChild(researchCard(r));
 
   var foot=el("div","card");
   foot.appendChild(el("small",null,"מקור: מאגרי משרד התחבורה הפתוחים (data.gov.il). עבר ביטוחי ותאונות אינם מפורסמים במאגרים האלה. המאגר מפרסם רק את הקילומטראז' של הטסט האחרון."));
@@ -578,6 +632,7 @@ $("go").addEventListener("click",function(){lookup($("plate").value,false)});
 $("plate").addEventListener("keydown",function(e){if(e.key==="Enter")lookup($("plate").value,false)});
 $("photo").addEventListener("change",function(e){var f=e.target.files&&e.target.files[0];e.target.value="";if(f)readPhoto(f)});
 drawRecent();
+if(window.__paired)setMsg("הטלפון חובר לסוכן המחקר. מעכשיו מחקר לרכב חדש מתבצע לבד.");
 window.__carScan={candidates:candidates,cropPlate:cropPlate,readPhoto:readPhoto};
 })();
 </script>
