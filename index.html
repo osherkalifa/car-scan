@@ -81,6 +81,10 @@ figure img{max-width:100%;border-radius:8px}
 .bar .fill{height:100%;background:var(--accent);border-radius:999px;transition:width .6s}
 .steps{margin:6px 0;padding-inline-start:22px;font-size:13px;color:var(--muted)}
 .steps li:last-child{color:var(--ink);font-weight:600}
+.diag{margin:12px 0;border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--bg)}
+.diag img{display:block;width:100%;height:auto;border-radius:6px;background:#fff}
+.diag figcaption{font-size:14px;margin-top:6px;font-weight:600}
+.srcl{font-size:12px;color:var(--accent)}
 .hist{margin-top:12px}
 .hist summary{cursor:pointer;font-weight:700;padding:6px 0}
 .hrow{display:flex;width:100%;gap:10px;align-items:center;justify-content:flex-start;background:transparent;color:var(--ink);border:0;border-top:1px solid var(--line);border-radius:0;padding:10px 2px;min-height:52px;text-align:start;font-weight:400}
@@ -271,6 +275,17 @@ function topicBody(t,d){
   }
   if(has(t.verdict))d.appendChild(el("p","verdict",t.verdict));
   if(has(t.fit))d.appendChild(el("p","fit",t.fit));
+  (t.images||[]).forEach(function(im){
+    if(!/^img\/[A-Za-z0-9._\/-]+\.bin$/.test(im.file||"")||(im.file||"").indexOf("..")>=0)return;
+    var f=el("figure","diag"),ph=el("div","fit","טוען תמונה…");f.appendChild(ph);
+    if(has(im.caption))f.appendChild(el("figcaption",null,im.caption));
+    if(im.source&&/^https:\/\//.test(im.source.url||"")){var a=el("a","srcl","מקור: "+(im.source.title||""));a.href=im.source.url;a.target="_blank";a.rel="noopener";f.appendChild(a)}
+    d.appendChild(f);
+    loadPicture(im.file).then(function(url){
+      var link=el("a");link.href=url;link.target="_blank";var img=el("img");img.src=url;img.alt=im.caption||"";link.appendChild(img);
+      f.replaceChild(link,ph);
+    }).catch(function(){ph.textContent="התמונה לא נטענה. ודא שהטלפון מחובר לסוכן המחקר.";ph.className="fit bad"});
+  });
   (t.tables||[]).forEach(function(tb){
     d.appendChild(el("h3",null,tb.title||""));
     if(has(tb.note))d.appendChild(el("p","fit",tb.note));
@@ -288,7 +303,22 @@ function topicBody(t,d){
   }
   if(has(t.updated))d.appendChild(el("p","src","נחקר בתאריך "+fmtDate(t.updated)));
 }
+var VARIANT=(function(){var m=location.search.match(/[?&]v=([a-z0-9]{1,12})(?:&|$)/);return m?m[1]:""})();
+function getBytes(u){return fetch(u,{cache:"no-store"}).then(function(x){if(!x.ok)throw 0;return x.arrayBuffer()})}
+// Pictures are stored encrypted; the key comes from the pairing code, so only a paired phone can show them.
+function loadPicture(file){
+  var code=pairCode();if(!code||!window.crypto||!crypto.subtle)return Promise.reject(0);
+  var enc=file.split("/").map(encodeURIComponent).join("/");
+  return getBytes("research/"+enc).catch(function(){return getBytes(RAW+enc)}).then(function(buf){
+    return crypto.subtle.digest("SHA-256",new TextEncoder().encode("img:"+code)).then(function(k){
+      return crypto.subtle.importKey("raw",k,"AES-GCM",false,["decrypt"]);
+    }).then(function(key){
+      return crypto.subtle.decrypt({name:"AES-GCM",iv:new Uint8Array(buf,0,12)},key,new Uint8Array(buf,12));
+    }).then(function(plain){return URL.createObjectURL(new Blob([plain],{type:"image/jpeg"}))});
+  });
+}
 function loadResearch(key,fresh){
+  if(VARIANT)key=key+"."+VARIANT;
   function get(u){return fetch(u,{cache:"no-store"}).then(function(x){if(!x.ok)throw 0;return x.json()})}
   var local="research/"+encodeURIComponent(key)+".json";
   var raw=RAW+encodeURIComponent(key)+".json"+(fresh?"?t="+Date.now():"");
@@ -311,6 +341,7 @@ function researchCard(r){
   function alive(){return run===researchRun}
   if(!key){c.appendChild(el("p","fit","מחקר זמין כרגע רק לרכב פרטי או מסחרי עם קוד דגם."));return c}
   c.appendChild(el("p","fit","בחר נושא. המחקר מתבצע רק לנושא שבחרת, ונשמר לכל רכב מאותו דגם."));
+  if(VARIANT)c.appendChild(el("p","rstat warn","מצב השוואה: מוצגות תוצאות של המודל \""+VARIANT+"\"."));
   var rows={},watching={},timer=null,sentAt={};
   TOPICS.forEach(function(tp){
     var d=el("details","topic");var sm=el("summary");
