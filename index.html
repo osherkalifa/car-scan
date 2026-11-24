@@ -57,6 +57,8 @@ button:disabled{opacity:.6}
 .recent{display:flex;gap:8px;flex-wrap:wrap}
 .recent button{min-height:40px;padding:8px 12px;font-size:14px;direction:ltr}
 .gap{margin-top:12px}
+.flag{display:flex;gap:8px;align-items:flex-start;padding:6px 0;font-weight:600}
+.flag .dot{flex:0 0 auto}
 small{color:var(--muted)}
 </style>
 </head>
@@ -135,9 +137,11 @@ function findPrimary(plate){
   var n=Number(plate);
   return Promise.all(PRIMARY.map(function(p){return safe(q(p[0],{mispar_rechev:n},5))})).then(function(rs){
     var failed=rs.filter(function(r){return !r.ok}).length;
+    var all={},first=null;
     for(var i=0;i<rs.length;i++){
-      if(rs[i].rows.length)return {key:PRIMARY[i][0],label:PRIMARY[i][1],rec:rs[i].rows[0],failed:failed};
+      if(rs[i].rows.length){all[PRIMARY[i][0]]=rs[i].rows[0];if(!first)first={key:PRIMARY[i][0],label:PRIMARY[i][1],rec:rs[i].rows[0]}}
     }
+    if(first){first.failed=failed;first.all=all;first.pubFailed=!rs[3].ok;return first}
     return {key:null,failed:failed};
   });
 }
@@ -209,6 +213,51 @@ function searchLinks(make,model,year,engine){
   return c;
 }
 
+// Warning lights: everything in the open registries that a buyer/mechanic would want to notice first.
+function flagsCard(plate,found,extra){
+  var r=found.rec,h=extra.hist,all=found.all||{},pub=all.pub,list=[];
+  function add(level,text){list.push([level,text])}
+  var isTaxi=pub&&String(pub.sug_rechev_nm||"").indexOf("מונית")>=0;
+  if(isTaxi)add("bad","רשום כיום כמונית במאגר הרכב הציבורי.");
+  else if(pub&&found.key!=="pub")add("warn","רשום גם במאגר הרכב הציבורי: "+(pub.sug_rechev_nm||""));
+  if(!isTaxi&&String(plate).length===7&&/(25|26)$/.test(plate))add("warn","המספר מסתיים ב־"+String(plate).slice(-2)+" – סיומת של לוחיות מונית. ייתכן שהרכב היה מונית בעבר.");
+  var cur=String(r.baalut||"");
+  if(cur&&cur!=="פרטי")add("warn","בעלות נוכחית: "+cur+".");
+  var seen={};
+  if(extra.ownState==="ok")extra.own.slice().sort(function(a,b){return a.baalut_dt-b.baalut_dt}).forEach(function(o){
+    var b=String(o.baalut||"");if(!b||b==="פרטי"||seen[b])return;seen[b]=1;
+    var name=b==="החכר"?"ליסינג / השכרה (החכר)":(b==="חברה"?"רכב חברה":(b==="סוחר"?"סוחר רכב":b));
+    add("warn","בעבר בבעלות "+name+" – מ־"+fmtDate(String(o.baalut_dt))+".");
+  });
+  if(extra.ownState==="ok"&&extra.own.length>=4)add("warn","החליף "+extra.own.length+" בעלים.");
+  if(h){
+    var m=String(h.mkoriut_nm||"").replace(/"/g,"").trim();
+    if(m==="החכר")add("warn","מקוריות: רכב החכר (ליסינג / השכרה).");
+    else if(m.indexOf("נהיגה")>=0)add("bad","מקוריות: רכב של בית ספר לנהיגה.");
+    else if(m)add("warn","מקוריות: "+m+".");
+    if(h.shinui_mivne_ind==1)add("warn","נרשם שינוי מבנה.");
+    if(h.shnui_zeva_ind==1)add("warn","נרשם שינוי צבע.");
+    if(h.gapam_ind==1)add("warn","מותקנת מערכת גפ\"מ.");
+  }
+  if(has(r.sug_yevu))add("warn","יבוא: "+r.sug_yevu+".");
+  var ts=testStatus(r.tokef_dt);if(ts&&ts.c==="bad")add("bad","הטסט לא בתוקף.");
+  if(extra.recallState==="ok"&&extra.recall.length)add("bad",extra.recall.length+" קריאות שירות (ריקול) שלא בוצעו.");
+  if(found.key==="cancel")add("bad","הרכב ירד מהכביש (ביטול סופי).");
+  if(found.key==="inact"||found.key==="inact2")add("warn","הרכב רשום כלא פעיל.");
+  var c=section("נורות אזהרה");
+  if(!list.length)c.appendChild(el("div","ok","לא נמצאו סימני אזהרה במאגרים הפתוחים."));
+  list.sort(function(a,b){return (a[0]==="bad"?0:1)-(b[0]==="bad"?0:1)}).forEach(function(f){
+    var d=el("div","flag "+f[0]);d.appendChild(el("span","dot",f[0]==="bad"?"🔴":"🟠"));d.appendChild(el("span",null,f[1]));c.appendChild(d);
+  });
+  var gaps=[];
+  if(found.pubFailed)gaps.push("מאגר הרכב הציבורי (מוניות)");
+  if(extra.ownState==="fail")gaps.push("היסטוריית בעלויות");
+  if(extra.histState==="fail")gaps.push("מקוריות ושינויים");
+  if(extra.recallState==="fail")gaps.push("ריקולים");
+  if(gaps.length)c.appendChild(el("small",null,"לא נבדק כרגע (המאגר לא ענה): "+gaps.join(", ")+"."));
+  return c;
+}
+
 function render(plate,found,extra,fromPhoto){
   var out=$("out");out.textContent="";
   var r=found.rec,spec=extra.spec,h=extra.hist,cont=extra.cont;
@@ -228,6 +277,7 @@ function render(plate,found,extra,fromPhoto){
   if(found.key==="cancel")hero.appendChild(el("div","note","הרכב ירד מהכביש"+(has(r.bitul_dt)?" בתאריך "+fmtDate(r.bitul_dt):"")+"."));
   if(found.key==="inact"||found.key==="inact2")hero.appendChild(el("div","note","הרכב רשום כלא פעיל."));
   out.appendChild(hero);
+  out.appendChild(flagsCard(plate,found,extra));
 
   var cols=el("div","cols");
 
