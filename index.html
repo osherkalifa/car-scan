@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>סורק רכב</title>
+<style>
+:root{
+  --bg:#f3f4f6; --card:#ffffff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb;
+  --accent:#1d4ed8; --accent-ink:#ffffff; --ok:#15803d; --warn:#b45309; --bad:#b91c1c;
+  --chip:#eef2ff; --plate:#f7c600; --plate-ink:#111111;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1115; --card:#191c22; --ink:#f3f4f6; --muted:#9ca3af; --line:#2b303a;
+    --accent:#60a5fa; --accent-ink:#0b1220; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --chip:#1f2937;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1115; --card:#191c22; --ink:#f3f4f6; --muted:#9ca3af; --line:#2b303a;
+  --accent:#60a5fa; --accent-ink:#0b1220; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+  --chip:#1f2937;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif;font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%}
+.wrap{max-width:1100px;margin:0 auto;padding:16px 16px 48px}
+h1{font-size:20px;margin:4px 0 12px}
+h2{font-size:15px;margin:0 0 8px;color:var(--muted);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.search{display:flex;gap:8px;flex-wrap:wrap}
+.search input[type=text]{flex:1 1 160px;min-width:0;font-size:22px;letter-spacing:2px;text-align:center;direction:ltr;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+button,.btn{font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 16px;background:var(--accent);color:var(--accent-ink);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:48px}
+button.secondary,.btn.secondary{background:var(--chip);color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.6}
+.cam{flex:1 1 100%}
+.msg{margin-top:10px;color:var(--muted);font-size:14px;min-height:20px}
+.msg.err{color:var(--bad)}
+.hero{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.plate{background:var(--plate);color:var(--plate-ink);border:2px solid #111;border-radius:8px;padding:6px 14px;font-size:24px;font-weight:800;letter-spacing:2px;direction:ltr;white-space:nowrap}
+.hero .title{font-size:22px;font-weight:800;direction:ltr;unicode-bidi:plaintext}
+.hero .sub{color:var(--muted)}
+.note{background:var(--chip);border-radius:10px;padding:10px 12px;font-size:14px;margin-top:10px}
+.cols{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:860px){.cols{grid-template-columns:repeat(3,1fr)}}
+.cols .card{margin:0}
+.row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row .k{color:var(--muted);flex:0 0 auto}
+.row .v{font-weight:600;text-align:left;overflow-wrap:anywhere;unicode-bidi:plaintext}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+.links{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+@media(min-width:860px){.links{grid-template-columns:repeat(4,1fr)}}
+.links .btn{font-size:14px;padding:10px;text-align:center}
+.recall{border-inline-start:4px solid var(--bad);padding:6px 10px;margin:8px 0;font-size:14px}
+.recent{display:flex;gap:8px;flex-wrap:wrap}
+.recent button{min-height:40px;padding:8px 12px;font-size:14px;direction:ltr}
+.gap{margin-top:12px}
+small{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>סורק רכב</h1>
+
+  <div class="card">
+    <div class="search">
+      <input id="plate" type="text" inputmode="numeric" autocomplete="off" placeholder="מספר רישוי" maxlength="12" aria-label="מספר רישוי">
+      <button id="go">חפש</button>
+      <label class="btn secondary cam">📷 צלם לוחית
+        <input id="photo" type="file" accept="image/*" capture="environment" hidden>
+      </label>
+    </div>
+    <div id="msg" class="msg" role="status"></div>
+    <div id="recent" class="recent"></div>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var API="https://data.gov.il/api/3/action/datastore_search";
+var R={
+  priv:"053cea08-09bc-40ec-8f7a-156f0677aff3",
+  moto:"bf9df4e2-d90d-4c0a-a400-19e15af8e95f",
+  heavy:"cd3acc5c-03c3-4c89-9c54-d40f93c0d790",
+  pub:"cf29862d-ca25-4691-84f6-1be60dcb4a1e",
+  imp:"03adc637-b6fe-402b-9937-7c3d3afc9140",
+  inact:"f6efe89a-fb3d-43a4-bb61-9bf12a9b9099",
+  inact2:"6f6acd03-f351-4a8f-8ecf-df792f4f573a",
+  cancel:"851ecab1-0622-4dbe-a6c7-f950cf82abf9",
+  hist:"56063a99-8a3e-4ff4-912e-5966c0279bad",
+  own:"bb2355dc-9ec7-4f06-9c3f-3344672171da",
+  cont:"0866573c-40cd-4ca8-91d2-9dd2d7a492e5",
+  spec:"142afde2-6228-49f9-8a29-9b6c3a0cbe40",
+  recall:"36bf1404-0be4-49d2-82dc-2f1ead4a8b93",
+  tag:"c8b9f9c8-4612-4068-934f-d4acd2e3c06e"
+};
+// Order = priority when a plate appears in more than one registry.
+var PRIMARY=[
+  ["priv","רכב פרטי / מסחרי פעיל"],
+  ["moto","דו־גלגלי"],
+  ["heavy","מעל 3.5 טון / ללא קוד דגם"],
+  ["pub","רכב ציבורי"],
+  ["imp","יבוא אישי"],
+  ["inact","לא פעיל"],
+  ["inact2","לא פעיל (ללא קוד דגם)"],
+  ["cancel","ירד מהכביש – ביטול סופי"]
+];
+var MAKES={"טויוטה":"Toyota","יונדאי":"Hyundai","קיה":"Kia","מזדה":"Mazda","מיצובישי":"Mitsubishi","סוזוקי":"Suzuki","ניסאן":"Nissan","הונדה":"Honda","סובארו":"Subaru","סקודה":"Skoda","פולקסווגן":"Volkswagen","סיאט":"Seat","אאודי":"Audi","ב מ וו":"BMW","במוו":"BMW","מרצדס":"Mercedes-Benz","פורד":"Ford","שברולט":"Chevrolet","פיג'ו":"Peugeot","סיטרואן":"Citroen","רנו":"Renault","דאציה":"Dacia","פיאט":"Fiat","אופל":"Opel","וולוו":"Volvo","לקסוס":"Lexus","טסלה":"Tesla","בי ווי די":"BYD","ג'ילי":"Geely","צ'רי":"Chery","אם. ג'י":"MG","אם ג'י":"MG","ג'יפ":"Jeep","לנד רובר":"Land Rover","מיני":"Mini","איסוזו":"Isuzu","דייהטסו":"Daihatsu","אינפיניטי":"Infiniti","קופרה":"Cupra","סאנגיונג":"SsangYong","דודג'":"Dodge","קרייזלר":"Chrysler","אלפא רומיאו":"Alfa Romeo","פורשה":"Porsche","ימאהה":"Yamaha","קוואסאקי":"Kawasaki","קימקו":"Kymco","סאן יאנג":"SYM","פיאג'ו":"Piaggio","מאן":"MAN","סקניה":"Scania","דאף":"DAF","איווקו":"Iveco"};
+
+var $=function(id){return document.getElementById(id)};
+function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=String(text);return e}
+function has(v){return v!==null&&v!==undefined&&String(v).trim()!==""}
+function fmtPlate(p){p=String(p);if(p.length===8)return p.slice(0,3)+"-"+p.slice(3,5)+"-"+p.slice(5);if(p.length===7)return p.slice(0,2)+"-"+p.slice(2,5)+"-"+p.slice(5);return p}
+function fmtDate(s){if(!has(s))return "";s=String(s);var m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)return (+m[3])+"."+(+m[2])+"."+m[1];m=s.match(/^(\d{4})-?(\d{1,2})$/);if(m)return (+m[2])+"/"+m[1];return s}
+function num(n){return Number(n).toLocaleString("he-IL")}
+function setMsg(t,err){var m=$("msg");m.textContent=t||"";m.className="msg"+(err?" err":"")}
+
+function q(res,filters,limit){
+  var ctl=new AbortController();var t=setTimeout(function(){ctl.abort()},15000);
+  var u=API+"?resource_id="+R[res]+"&limit="+(limit||50)+"&filters="+encodeURIComponent(JSON.stringify(filters));
+  return fetch(u,{signal:ctl.signal}).then(function(r){if(!r.ok)throw new Error("http "+r.status);return r.json()})
+    .then(function(d){clearTimeout(t);if(!d.success)throw new Error("api");return d.result.records||[]},
+          function(e){clearTimeout(t);throw e});
+}
+// Resolves to {ok:true,rows} or {ok:false}; never rejects.
+function safe(p){return p.then(function(rows){return {ok:true,rows:rows}},function(){return {ok:false,rows:[]}})}
+
+// Finds the plate in the primary registries. -> {key,label,rec} | null ; .failed = some source unavailable
+function findPrimary(plate){
+  var n=Number(plate);
+  return Promise.all(PRIMARY.map(function(p){return safe(q(p[0],{mispar_rechev:n},5))})).then(function(rs){
+    var failed=rs.filter(function(r){return !r.ok}).length;
+    for(var i=0;i<rs.length;i++){
+      if(rs[i].rows.length)return {key:PRIMARY[i][0],label:PRIMARY[i][1],rec:rs[i].rows[0],failed:failed};
+    }
+    return {key:null,failed:failed};
+  });
+}
+
+function enMake(he){
+  if(!has(he))return "";
+  var s=String(he).trim();
+  for(var k in MAKES){if(s.indexOf(k)===0)return MAKES[k]}
+  return s;
+}
+
+function row(parent,k,v,cls){
+  if(!has(v))return;
+  var r=el("div","row");r.appendChild(el("span","k",k));r.appendChild(el("span","v"+(cls?" "+cls:""),v));parent.appendChild(r);
+}
+function section(title){var c=el("div","card");c.appendChild(el("h2",null,title));return c}
+function yn(v){return v===1||v==="1"?"יש":(v===0||v==="0"?"אין":"")}
+
+function testStatus(tokef){
+  if(!has(tokef))return null;
+  var d=new Date(String(tokef).slice(0,10));if(isNaN(d))return null;
+  var days=Math.round((d-new Date())/86400000);
+  if(days<0)return {t:"פג תוקף ב־"+fmtDate(tokef)+" (לפני "+num(-days)+" ימים)",c:"bad"};
+  if(days<=30)return {t:"בתוקף עד "+fmtDate(tokef)+" (עוד "+days+" ימים)",c:"warn"};
+  return {t:"בתוקף עד "+fmtDate(tokef),c:"ok"};
+}
+
+function saveRecent(plate,title,km){
+  try{
+    var list=JSON.parse(localStorage.getItem("cs_recent")||"[]").filter(function(x){return x.p!==plate});
+    list.unshift({p:plate,t:title});localStorage.setItem("cs_recent",JSON.stringify(list.slice(0,8)));
+    if(km>0){
+      var all=JSON.parse(localStorage.getItem("cs_km")||"{}");var a=all[plate]||[];
+      if(!a.length||a[a.length-1].km!==km){a.push({d:new Date().toISOString().slice(0,10),km:km});all[plate]=a.slice(-20);localStorage.setItem("cs_km",JSON.stringify(all))}
+    }
+  }catch(e){}
+}
+function kmLog(plate){try{return (JSON.parse(localStorage.getItem("cs_km")||"{}")[plate])||[]}catch(e){return []}}
+function drawRecent(){
+  var box=$("recent");box.textContent="";var list=[];
+  try{list=JSON.parse(localStorage.getItem("cs_recent")||"[]")}catch(e){}
+  list.forEach(function(x){
+    var b=el("button","secondary",fmtPlate(x.p));b.title=x.t||"";
+    b.addEventListener("click",function(){$("plate").value=x.p;lookup(x.p,false)});box.appendChild(b);
+  });
+}
+
+function searchLinks(make,model,year,engine){
+  var base=[make,model,year].filter(has).join(" ");
+  var items=[
+    ["תרשים פיוזים",base+" fuse box diagram","isch"],
+    ["דיאגרמת חשמל",base+" wiring diagram","isch"],
+    ["מומנטי הידוק",base+" "+(engine||"")+" torque specs",""],
+    ["ספר רכב (PDF)",base+" owner's manual pdf",""],
+    ["ספר מוסך",base+" workshop service manual",""],
+    ["צריכת דלק",base+" צריכת דלק ק\"מ לליטר",""],
+    ["אמינות ותקלות נפוצות",base+" common problems reliability",""],
+    ["קוד המנוע",(make+" "+(engine||"")+" engine specs"),""]
+  ];
+  var c=section("חיפוש ברשת לרכב הזה");var g=el("div","links");
+  items.forEach(function(it){
+    if(it[0]==="קוד המנוע"&&!has(engine))return;
+    var a=el("a","btn secondary",it[0]);
+    a.href="https://www.google.com/search?q="+encodeURIComponent(it[1].replace(/\s+/g," ").trim())+(it[2]?"&tbm="+it[2]:"");
+    a.target="_blank";a.rel="noopener";g.appendChild(a);
+  });
+  c.appendChild(g);
+  c.appendChild(el("small",null,"התוצאות מגיעות מהרשת ולא מהמאגר הרשמי. מומנטים וערכי פיוזים – לוודא מול מקור אמין לפני עבודה."));
+  return c;
+}
+
+function render(plate,found,extra,fromPhoto){
+  var out=$("out");out.textContent="";
+  var r=found.rec,spec=extra.spec,h=extra.hist,cont=extra.cont;
+  var makeHe=r.tozeret_nm||(spec&&spec.tozar)||"";
+  var make=enMake(makeHe);
+  var model=has(r.kinuy_mishari)?r.kinuy_mishari:(r.degem_nm||"");
+  var title=(has(model)&&has(make)&&String(model).toUpperCase().indexOf(String(make).toUpperCase())===0)?model:[make,model].filter(has).join(" ");
+  var color=r.tzeva_rechev||"";
+
+  // hero
+  var hero=el("div","card");var hh=el("div","hero");
+  hh.appendChild(el("div","plate",fmtPlate(plate)));
+  var tx=el("div");tx.appendChild(el("div","title",title||"רכב"));
+  tx.appendChild(el("div","sub",[r.shnat_yitzur,color,r.ramat_gimur,found.label].filter(has).join(" · ")));
+  hh.appendChild(tx);hero.appendChild(hh);
+  if(fromPhoto)hero.appendChild(el("div","note","המספר נקרא מהתמונה. ודא שהיצרן, הדגם והצבע תואמים לרכב שמולך – קריאה שגויה יכולה להתאים לרכב אחר."));
+  if(found.key==="cancel")hero.appendChild(el("div","note","הרכב ירד מהכביש"+(has(r.bitul_dt)?" בתאריך "+fmtDate(r.bitul_dt):"")+"."));
+  if(found.key==="inact"||found.key==="inact2")hero.appendChild(el("div","note","הרכב רשום כלא פעיל."));
+  out.appendChild(hero);
+
+  var cols=el("div","cols");
+
+  // column 1: identity
+  var c1=section("זיהוי");
+  row(c1,"יצרן",makeHe);
+  row(c1,"ארץ ייצור",(spec&&spec.tozeret_eretz_nm)||r.tozeret_eretz_nm);
+  row(c1,"שם מסחרי",r.kinuy_mishari);
+  row(c1,"קוד דגם",r.degem_nm);
+  row(c1,"רמת גימור",r.ramat_gimur);
+  row(c1,"שנת ייצור",r.shnat_yitzur);
+  row(c1,"סוג רכב",r.sug_rechev_nm||r.kvutzat_sug_rechev||(spec&&spec.merkav));
+  row(c1,"צבע",color);
+  row(c1,"דלתות",spec&&spec.mispar_dlatot);
+  row(c1,"מושבים",(spec&&spec.mispar_moshavim)||r.mispar_mekomot);
+  row(c1,"סוג יבוא",r.sug_yevu);
+  cols.appendChild(c1);
+
+  // column 2: dry details
+  var c2=section("פרטים יבשים");
+  row(c2,"מספר שלדה",r.misgeret||r.mispar_shilda||r.shilda);
+  row(c2,"קוד מנוע",r.degem_manoa);
+  row(c2,"מספר מנוע",(h&&h.mispar_manoa)||r.mispar_manoa);
+  var vol=(spec&&spec.nefah_manoa)||r.nefach_manoa;
+  row(c2,"נפח מנוע",vol>0?num(vol)+" סמ\"ק":"");
+  var hp=(spec&&spec.koah_sus)||r.hespek;
+  row(c2,"הספק",hp>0?hp+" כ\"ס":"");
+  row(c2,"דלק",r.sug_delek_nm||(spec&&spec.delek_nm));
+  if(spec&&has(spec.technologiat_hanaa_nm)&&spec.technologiat_hanaa_nm.indexOf("לא ידוע")<0)row(c2,"טכנולוגיית הנעה",spec.technologiat_hanaa_nm);
+  row(c2,"הנעה",(spec&&spec.hanaa_nm)||r.hanaa_nm);
+  if(spec&&has(spec.automatic_ind))row(c2,"תיבת הילוכים",spec.automatic_ind==1?"אוטומטית":"ידנית");
+  var w=(spec&&spec.mishkal_kolel)||r.mishkal_kolel;
+  row(c2,"משקל כולל",w>0?num(w)+" ק\"ג":"");
+  row(c2,"משקל עצמי",r.mishkal_azmi>0?num(r.mishkal_azmi)+" ק\"ג":"");
+  var tf=r.zmig_kidmi||r.mida_zmig_kidmi,tr=r.zmig_ahori||r.mida_zmig_ahori;
+  if(has(tf)&&tf===tr)row(c2,"צמיגים",tf);else{row(c2,"צמיג קדמי",tf);row(c2,"צמיג אחורי",tr)}
+  if(cont&&cont.kod_omes_tzmig_kidmi>0)row(c2,"קוד עומס / מהירות",cont.kod_omes_tzmig_kidmi+" "+(cont.kod_mehirut_tzmig_kidmi||""));
+  row(c2,"וו גרירה",(cont&&cont.grira_nm)||r.grira_nm);
+  if(spec&&spec.kosher_grira_im_blamim>0)row(c2,"כושר גרירה (עם בלמים)",num(spec.kosher_grira_im_blamim)+" ק\"ג");
+  if(spec&&has(spec.nikud_betihut))row(c2,"ציון בטיחות",spec.nikud_betihut);
+  row(c2,"רמת אבזור בטיחותי",r.ramat_eivzur_betihuty!=null?r.ramat_eivzur_betihuty+" מתוך 8":"");
+  if(spec&&spec.mispar_kariot_avir>0)row(c2,"כריות אוויר",spec.mispar_kariot_avir);
+  row(c2,"קבוצת זיהום",r.kvutzat_zihum);
+  if(spec&&has(spec.CO2_WLTP))row(c2,"פליטת CO2",spec.CO2_WLTP+" גרם/ק\"מ");
+  if(extra.specState==="fail")c2.appendChild(el("small",null,"מפרט הדגם לא זמין כרגע."));
+  else if(extra.specState==="none"&&found.key==="priv")c2.appendChild(el("small",null,"לא נמצא מפרט דגם מפורט במאגר."));
+  cols.appendChild(c2);
+
+  // column 3: history & status
+  var c3=section("היסטוריה ומצב");
+  var ts=testStatus(r.tokef_dt);
+  if(ts)row(c3,"טסט",ts.t,ts.c);
+  row(c3,"טסט אחרון",fmtDate(r.mivchan_acharon_dt));
+  row(c3,"עלייה לכביש",fmtDate((h&&h.rishum_rishon_dt)||r.moed_aliya_lakvish));
+  row(c3,"בעלות נוכחית",r.baalut);
+  if(extra.ownState==="ok"&&extra.own.length){
+    var owns=extra.own.slice().sort(function(a,b){return a.baalut_dt-b.baalut_dt});
+    row(c3,"מספר בעלים","יד "+owns.length);
+    owns.forEach(function(o,i){row(c3,"יד "+(i+1),(o.baalut||"")+" · מ־"+fmtDate(String(o.baalut_dt)))});
+  }else if(extra.ownState==="fail"){row(c3,"היסטוריית בעלויות","לא זמין כרגע","warn")}
+  if(extra.histState==="ok"&&h){
+    row(c3,"ק\"מ בטסט האחרון",h.kilometer_test_aharon>0?num(h.kilometer_test_aharon):"לא נרשם");
+    row(c3,"מקוריות",h.mkoriut_nm);
+    row(c3,"שינוי מבנה",h.shinui_mivne_ind==1?"כן":"לא",h.shinui_mivne_ind==1?"warn":"");
+    row(c3,"שינוי צבע",h.shnui_zeva_ind==1?"כן":"לא",h.shnui_zeva_ind==1?"warn":"");
+    row(c3,"שינוי צמיגים",h.shinui_zmig_ind==1?"כן":"לא");
+    row(c3,"גפ\"מ",h.gapam_ind==1?"מותקן":"לא");
+  }else if(extra.histState==="fail"){row(c3,"ק\"מ ושינויים","לא זמין כרגע","warn")}
+  if(extra.tagState==="ok"&&extra.tag)row(c3,"תג נכה","יש");
+  var log=kmLog(plate);
+  if(log.length>1){
+    var first=log[0],last=log[log.length-1];
+    row(c3,"מגמת ק\"מ (מהסריקות שלך)",num(first.km)+" ← "+num(last.km)+" ("+fmtDate(first.d)+" עד "+fmtDate(last.d)+")",last.km<first.km?"bad":"");
+  }
+  cols.appendChild(c3);
+  out.appendChild(cols);
+
+  // recalls
+  var rc=section("קריאות שירות (ריקול) שלא בוצעו");rc.classList.add("gap");
+  if(extra.recallState==="fail")rc.appendChild(el("div","warn","לא זמין כרגע."));
+  else if(!extra.recall.length)rc.appendChild(el("div","ok","אין ריקול פתוח במאגר."));
+  else extra.recall.forEach(function(x){
+    var d=el("div","recall");d.appendChild(el("strong",null,[x.SUG_RECALL,x.SUG_TAKALA].filter(has).join(" · ")));
+    d.appendChild(el("div",null,x.TEUR_TAKALA||""));d.appendChild(el("small",null,"נפתח: "+fmtDate(x.TAARICH_PTICHA)));rc.appendChild(d);
+  });
+  out.appendChild(rc);
+
+  out.appendChild(searchLinks(make,has(r.kinuy_mishari)&&title===model?model.replace(new RegExp("^"+make+"\\s*","i"),""):model,r.shnat_yitzur,r.degem_manoa));
+
+  var foot=el("div","card");
+  foot.appendChild(el("small",null,"מקור: מאגרי משרד התחבורה הפתוחים (data.gov.il). עבר ביטוחי ותאונות אינם מפורסמים במאגרים האלה. המאגר מפרסם רק את הקילומטראז' של הטסט האחרון."));
+  out.appendChild(foot);
+
+  saveRecent(plate,title,h?Number(h.kilometer_test_aharon)||0:0);drawRecent();
+}
+
+function loadExtra(plate,found){
+  var n=Number(plate),r=found.rec;
+  var specP;
+  if(has(r.tozeret_cd)&&has(r.degem_cd)&&has(r.shnat_yitzur)){
+    var f={tozeret_cd:r.tozeret_cd,degem_cd:r.degem_cd,shnat_yitzur:r.shnat_yitzur};
+    if(has(r.sug_degem))f.sug_degem=r.sug_degem;
+    specP=safe(q("spec",f,20));
+  }else specP=Promise.resolve({ok:true,rows:[],skip:true});
+  var isCar=(found.key==="priv"||found.key==="inact"||found.key==="cancel");
+  var none=Promise.resolve({ok:true,rows:[],skip:true});
+  return Promise.all([
+    specP,
+    isCar?safe(q("hist",{mispar_rechev:n},5)):none,
+    isCar?safe(q("own",{mispar_rechev:n},50)):none,
+    isCar?safe(q("cont",{mispar_rechev:n},5)):none,
+    safe(q("recall",{MISPAR_RECHEV:n},50)),
+    safe(q("tag",{"MISPAR RECHEV":n},1))
+  ]).then(function(a){
+    var st=function(x){return x.skip?"skip":(x.ok?"ok":"fail")};
+    var specs=a[0].rows,spec=null;
+    if(specs.length){
+      spec=specs.filter(function(s){return has(r.ramat_gimur)&&s.ramat_gimur===r.ramat_gimur})[0]||
+           specs.filter(function(s){return s.degem_nm===r.degem_nm})[0]||specs[0];
+    }
+    return {
+      spec:spec,specState:a[0].ok?(spec?"ok":"none"):"fail",
+      hist:a[1].rows[0]||null,histState:st(a[1]),
+      own:a[2].rows,ownState:st(a[2]),
+      cont:a[3].rows[0]||null,
+      recall:a[4].rows,recallState:st(a[4]),
+      tag:a[5].rows[0]||null,tagState:st(a[5])
+    };
+  });
+}
+
+var busy=false;
+function lookup(raw,fromPhoto,preFound){
+  var plate=String(raw||"").replace(/\D/g,"");
+  if(plate.length<5||plate.length>8){setMsg("מספר רישוי צריך להיות 5 עד 8 ספרות.",true);return Promise.resolve()}
+  if(busy)return Promise.resolve();busy=true;$("go").disabled=true;
+  setMsg("מחפש את "+fmtPlate(plate)+"…");
+  return (preFound?Promise.resolve(preFound):findPrimary(plate)).then(function(found){
+    if(!found.key){
+      $("out").textContent="";
+      if(found.failed===PRIMARY.length)setMsg("אין תשובה מהמאגר הממשלתי כרגע. בדוק חיבור לאינטרנט ונסה שוב.",true);
+      else setMsg("המספר "+fmtPlate(plate)+" לא נמצא במאגרים הפתוחים"+(found.failed?" (חלק מהמאגרים לא ענו – שווה לנסות שוב)":"")+".",true);
+      return;
+    }
+    return loadExtra(plate,found).then(function(extra){
+      render(plate,found,extra,fromPhoto);
+      setMsg(found.failed?"חלק מהמאגרים לא ענו; מוצג מה שהתקבל.":"");
+    });
+  }).catch(function(){setMsg("משהו השתבש בחיפוש. נסה שוב.",true)})
+    .then(function(){busy=false;$("go").disabled=false});
+}
+
+// ---------- photo → plate ----------
+function loadScript(src){return new Promise(function(res,rej){var s=document.createElement("script");s.src=src;s.onload=res;s.onerror=function(){rej(new Error("script"))};document.head.appendChild(s)})}
+var workerP=null;
+function getWorker(){
+  if(!workerP){
+    workerP=loadScript("https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js")
+      .then(function(){return window.Tesseract.createWorker("eng")})
+      .then(function(w){return w.setParameters({tessedit_char_whitelist:"0123456789"}).then(function(){return w})});
+    workerP.catch(function(){workerP=null});
+  }
+  return workerP;
+}
+function fileToCanvas(file,maxSide){
+  return new Promise(function(res,rej){
+    var img=new Image();var url=URL.createObjectURL(file);
+    img.onload=function(){
+      var s=Math.min(1,maxSide/Math.max(img.width,img.height));
+      var c=document.createElement("canvas");c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);res(c);
+    };
+    img.onerror=function(){URL.revokeObjectURL(url);rej(new Error("img"))};img.src=url;
+  });
+}
+// Israeli plates are yellow: crop to the densest yellow band and return a high-contrast grayscale canvas.
+function cropPlate(src){
+  var w=src.width,h=src.height,ctx=src.getContext("2d",{willReadFrequently:true});
+  var d=ctx.getImageData(0,0,w,h).data;
+  var rows=new Uint32Array(h),colsA=new Uint32Array(w),total=0,x,y,i;
+  for(y=0;y<h;y++)for(x=0;x<w;x++){
+    i=(y*w+x)*4;var r=d[i],g=d[i+1],b=d[i+2];
+    if(r>130&&g>100&&r-b>60&&g-b>35&&Math.abs(r-g)<90){rows[y]++;colsA[x]++;total++}
+  }
+  if(total<w*h*0.003)return null;
+  function span(arr,len){ // range holding the central 92% of yellow pixels
+    var lo=total*0.04,hi=total*0.96,acc=0,a=0,b=len-1,k,setA=false;
+    for(k=0;k<len;k++){acc+=arr[k];if(!setA&&acc>=lo){a=k;setA=true}if(acc>=hi){b=k;break}}
+    return [a,b];
+  }
+  var ry=span(rows,h),rx=span(colsA,w);
+  var bw=rx[1]-rx[0],bh=ry[1]-ry[0];
+  if(bw<40||bh<10)return null;
+  var px=Math.round(bw*0.04),py=Math.round(bh*0.15);
+  var x0=Math.max(0,rx[0]-px),y0=Math.max(0,ry[0]-py),cw=Math.min(w-x0,bw+2*px),ch=Math.min(h-y0,bh+2*py);
+  var scale=Math.max(1,900/cw);
+  var c=document.createElement("canvas");c.width=Math.round(cw*scale);c.height=Math.round(ch*scale);
+  var cx=c.getContext("2d");cx.imageSmoothingQuality="high";cx.drawImage(src,x0,y0,cw,ch,0,0,c.width,c.height);
+  var im=cx.getImageData(0,0,c.width,c.height),p=im.data;
+  for(i=0;i<p.length;i+=4){ // dark digits on yellow: min channel separates them well
+    var v=Math.min(p[i],p[i+1]);v=v<110?0:(v>170?255:Math.round((v-110)*255/60));p[i]=p[i+1]=p[i+2]=v;
+  }
+  cx.putImageData(im,0,0);return c;
+}
+function candidates(text){
+  var out=[],seen={};
+  function add(s){if(!seen[s]&&s[0]!=="0"){seen[s]=1;out.push(s)}}
+  String(text).split(/\n/).forEach(function(line){
+    var dg=line.replace(/\D/g,"");
+    if(dg.length===8||dg.length===7)add(dg);
+    [8,7].forEach(function(n){for(var i=0;i+n<=dg.length;i++)add(dg.substr(i,n))});
+  });
+  return out.slice(0,10);
+}
+function readPhoto(file){
+  if(busy)return;
+  setMsg("קורא את הלוחית מהתמונה…");
+  var texts=[];
+  fileToCanvas(file,1600).then(function(full){
+    return getWorker().then(function(w){
+      var crop=cropPlate(full);
+      var first=crop?w.setParameters({tessedit_pageseg_mode:"7"}).then(function(){return w.recognize(crop)}).then(function(r){texts.push(r.data.text)}):Promise.resolve();
+      return first.then(function(){
+        if(candidates(texts.join("\n")).length)return;
+        return w.setParameters({tessedit_pageseg_mode:"11"}).then(function(){return w.recognize(full)}).then(function(r){texts.push(r.data.text)});
+      });
+    });
+  }).then(function(){
+    var cands=candidates(texts.join("\n"));
+    if(!cands.length){setMsg("לא הצלחתי לקרוא מספר מהתמונה. צלם מקרוב ובאור טוב, או הקלד את המספר.",true);return}
+    setMsg("בודק את המספר שנקרא…");
+    // keep the first candidate the registry recognises
+    var i=0;
+    function next(){
+      if(i>=cands.length){$("plate").value=cands[0];setMsg("קראתי "+fmtPlate(cands[0])+" אבל הוא לא נמצא במאגר. תקן את המספר ולחץ חפש.",true);return}
+      var c=cands[i++];
+      return findPrimary(c).then(function(f){if(f.key){$("plate").value=c;return lookup(c,true,f)}return next()});
+    }
+    return next();
+  }).catch(function(){setMsg("קריאת התמונה לא זמינה כרגע. הקלד את המספר ידנית.",true)});
+}
+
+$("go").addEventListener("click",function(){lookup($("plate").value,false)});
+$("plate").addEventListener("keydown",function(e){if(e.key==="Enter")lookup($("plate").value,false)});
+$("photo").addEventListener("change",function(e){var f=e.target.files&&e.target.files[0];e.target.value="";if(f)readPhoto(f)});
+drawRecent();
+window.__carScan={candidates:candidates,cropPlate:cropPlate,readPhoto:readPhoto};
+})();
+</script>
+</body>
+</html>
