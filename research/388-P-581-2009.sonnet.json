@@ -8,6 +8,14 @@
    "verdict": "לא נמצא מידע.",
    "fit": "",
    "updated": "2026-11-24"
+  },
+  {
+   "id": "wiring",
+   "title": "דיאגרמות חשמל",
+   "confidence": "none",
+   "verdict": "לא נמצא מידע.",
+   "fit": "",
+   "updated": "2026-11-24"
   }
  ],
  "vehicle": "וולבו C30 2.4I · MK38 · 2009 · מנוע B5244S4",
